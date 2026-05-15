@@ -199,8 +199,21 @@ export async function findQuizComment(
   ctx: RepoContext,
   quizId: string,
 ): Promise<number | null> {
-  const marker = `<!-- balrog-quiz-id: ${quizId} -->`
-  // Paginate to handle PRs with many comments
+  return findBalrogComment(octokit, ctx, `<!-- balrog-quiz-id: ${quizId} -->`)
+}
+
+export async function findAnyBalrogComment(
+  octokit: Octokit,
+  ctx: RepoContext,
+): Promise<number | null> {
+  return findBalrogComment(octokit, ctx, '<!-- balrog-quiz-id:')
+}
+
+async function findBalrogComment(
+  octokit: Octokit,
+  ctx: RepoContext,
+  marker: string,
+): Promise<number | null> {
   for await (const page of octokit.paginate.iterator(octokit.rest.issues.listComments, {
     owner: ctx.owner,
     repo: ctx.repo,

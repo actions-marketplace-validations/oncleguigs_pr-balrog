@@ -6,6 +6,8 @@ import {
   fetchFilteredDiff,
   createPendingCheck,
   postComment,
+  updateComment,
+  findAnyBalrogComment,
   saveQuizArtifact,
 } from './github'
 import { createProvider } from './providers'
@@ -106,13 +108,22 @@ async function run(): Promise<void> {
   const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode)
   await saveQuizArtifact(quiz)
 
-  // Post quiz comment (without correct answers)
+  // Post or update quiz comment (without correct answers)
   const lang = language === 'auto' ? 'en' : language
   const commentBody = answerMode === 'checkbox'
     ? renderQuizCommentCheckbox(quiz, lang)
     : renderQuizComment(quiz, lang)
-  const commentId = await postComment(octokit, ctx, commentBody)
-  core.info(`Posted quiz comment #${commentId} (mode: ${answerMode})`)
+
+  const existingCommentId = await findAnyBalrogComment(octokit, ctx)
+  let commentId: number
+  if (existingCommentId) {
+    await updateComment(octokit, ctx, existingCommentId, commentBody)
+    commentId = existingCommentId
+    core.info(`Updated existing quiz comment #${commentId} (mode: ${answerMode})`)
+  } else {
+    commentId = await postComment(octokit, ctx, commentBody)
+    core.info(`Posted new quiz comment #${commentId} (mode: ${answerMode})`)
+  }
 
   // Create pending check — this is what blocks the merge
   const checkId = await createPendingCheck(octokit, ctx)
