@@ -8,7 +8,7 @@ import {
   updateComment,
   findExistingCheck,
   findQuizComment,
-  findBalrogResultComment,
+  findAnyBalrogComment,
   updateCheckSuccess,
   updateCheckFailure,
 } from './github'
@@ -210,7 +210,7 @@ async function run(): Promise<void> {
 
     const lang = language === 'auto' ? detectLanguage(quiz) : language
     const resultBody = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
-    const existingResultId = await findBalrogResultComment(octokit, ctx)
+    const existingResultId = await findAnyBalrogComment(octokit, ctx)
     if (existingResultId) {
       await updateComment(octokit, ctx, existingResultId, resultBody)
       core.info(`Updated result comment #${existingResultId}`)
