@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import { parseAnswerComment, parseCheckboxAnswers, parseRetryCheckbox, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox, renderQuizComment, renderFightingBanner, renderUpdatedAt } from './quiz'
+import { parseAnswerComment, parseCheckboxAnswers, parseRetryCheckbox, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox, renderQuizComment, renderFightingBanner, renderUpdatedAt, renderRegeneratingComment } from './quiz'
 import {
   loadQuizArtifact,
   saveQuizArtifact,
@@ -9,6 +9,7 @@ import {
   findExistingCheck,
   findQuizComment,
   findAnyBalrogComment,
+  findResultComment,
   updateCheckSuccess,
   updateCheckFailure,
 } from './github'
@@ -232,11 +233,39 @@ async function run(): Promise<void> {
       const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed
       await postComment(octokit, ctx,
         `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`)
+
+      // Checkbox mode: re-render quiz comment clearing the retry checkbox but preserving answer selections
+      if (eventAction === 'edited' && quizForRetry) {
+        const lang = language === 'auto' ? detectLanguage(quizForRetry) : language
+        const currentSelections: SubmittedAnswers = {}
+        const lineRegex = /- \[(x| )\] \*\*Q(\d+)([ABC])\)\*\*/gi
+        let m: RegExpExecArray | null
+        while ((m = lineRegex.exec(commentBody)) !== null) {
+          const checked = m[1].toLowerCase() === 'x'
+          const qNum = m[2]
+          const letter = m[3].toUpperCase() as 'A' | 'B' | 'C'
+          if (!currentSelections[qNum]) currentSelections[qNum] = []
+          if (checked) currentSelections[qNum].push(letter)
+        }
+        for (const k of Object.keys(currentSelections)) {
+          if (currentSelections[k].length === 0) delete currentSelections[k]
+        }
+        const reset = renderQuizCommentCheckbox(quizForRetry, lang, currentSelections)
+        await updateComment(octokit, ctx, comment!.id as number, reset + '\n\n' + renderUpdatedAt(new Date(), lang))
+      }
       return
     }
 
     core.info(`@${commenterLogin} requested a retry`)
-    await postComment(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin))
+
+    // Checkbox mode: update the quiz comment with a regenerating banner (generate.ts will replace it)
+    if (eventAction === 'edited' && quizForRetry) {
+      const lang = language === 'auto' ? detectLanguage(quizForRetry) : language
+      const banner = renderRegeneratingComment(quizForRetry, lang)
+      await updateComment(octokit, ctx, comment!.id as number, banner + '\n\n' + renderUpdatedAt(new Date(), lang))
+    } else {
+      await postComment(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin))
+    }
 
     await octokit.rest.actions.createWorkflowDispatch({
       owner: repo.owner,
@@ -307,7 +336,7 @@ async function run(): Promise<void> {
     await saveQuizArtifact(updatedQuiz)
 
     const resultBody = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
-    const existingResultId = await findAnyBalrogComment(octokit, ctx)
+    const existingResultId = await findResultComment(octokit, ctx)
     if (existingResultId) {
       await updateComment(octokit, ctx, existingResultId, withFooter(resultBody))
       core.info(`Updated result comment #${existingResultId}`)

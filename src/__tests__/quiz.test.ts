@@ -12,6 +12,8 @@ import {
   renderAttemptsHistory,
   renderFightingBanner,
   renderUpdatedAt,
+  renderRegeneratingComment,
+  renderPreviousQuizSummary,
 } from '../quiz'
 import type { Question, AttemptRecord } from '../types'
 
@@ -475,5 +477,78 @@ describe('retry checkbox in rendered comments', () => {
   it('locked comment (passed) does NOT contain retry checkbox', () => {
     const locked = renderLockedQuizComment({ ...quiz, passed: true })
     expect(locked).not.toContain('🔄 Request a new quiz')
+  })
+})
+
+describe('renderRegeneratingComment', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('contains regenerating banner text', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain('Generating your new quiz')
+  })
+
+  it('contains the quiz-id marker so generate.ts can find the comment', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  })
+
+  it('contains the regenerating mode marker', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain('<!-- balrog-mode: checkbox-regenerating -->')
+  })
+
+  it('shows questions', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain('Why was the connection pool size increased')
+  })
+
+  it('contains French banner when language is fr', () => {
+    const body = renderRegeneratingComment(quiz, 'fr')
+    expect(body).toContain('Nouveau quiz en cours de génération')
+  })
+})
+
+describe('renderPreviousQuizSummary', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('returns empty string equivalent when no attempts', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    expect(body).toContain('<details>')
+    expect(body).not.toContain('Attempts:')
+  })
+
+  it('contains attempt history when attempts exist', () => {
+    const attempt: AttemptRecord = { n: 1, answers: { '1': ['A'], '2': ['A'], '3': ['A'] }, score: 33 }
+    const quizWithAttempts = { ...quiz, attemptsUsed: 1, attempts: [attempt] }
+    const body = renderPreviousQuizSummary(quizWithAttempts)
+    expect(body).toContain('Attempts:')
+    expect(body).toContain('Attempt 1')
+    expect(body).toContain('33%')
+  })
+
+  it('shows correct answers with checkmarks', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    // Q1 correct is B — should show ✅ for B
+    expect(body).toContain('✅ **B)**')
+    // A should be ⬜
+    expect(body).toContain('⬜ **A)**')
+  })
+
+  it('shows explanations', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    expect(body).toContain(SAMPLE_QUESTIONS[0].explanation)
+  })
+
+  it('wraps in <details> block', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    expect(body).toContain('<details>')
+    expect(body).toContain('</details>')
+    expect(body).toContain('📜 Previous quiz')
+  })
+
+  it('French summary title when language is fr', () => {
+    const body = renderPreviousQuizSummary(quiz, 'fr')
+    expect(body).toContain('📜 Quiz précédent')
   })
 })

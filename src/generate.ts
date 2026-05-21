@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import type { AIProvider, AnswerMode, QuizSize } from './types'
-import { pickQuizSize, buildQuiz, renderQuizComment, renderQuizCommentCheckbox } from './quiz'
+import { pickQuizSize, buildQuiz, renderQuizComment, renderQuizCommentCheckbox, renderPreviousQuizSummary } from './quiz'
 import {
   fetchFilteredDiff,
   createPendingCheck,
@@ -9,6 +9,7 @@ import {
   updateComment,
   findAnyBalrogComment,
   saveQuizArtifact,
+  loadQuizArtifact,
 } from './github'
 import { createProvider } from './providers'
 
@@ -104,15 +105,20 @@ async function run(): Promise<void> {
   const adapter = createProvider(provider, apiKey, model)
   const questions = await adapter.generateQuiz({ diff, numQuestions, language, additionalPrompt })
 
+  // Load old quiz BEFORE saving the new one (both share the same artifact name)
+  const oldQuiz = await loadQuizArtifact(ctx.prNumber, octokit, ctx.owner, ctx.repo, token)
+
   // Persist quiz + correct answers as artifact (author can't see this)
   const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode)
   await saveQuizArtifact(quiz)
 
   // Post or update quiz comment (without correct answers)
   const lang = language === 'auto' ? 'en' : language
-  const commentBody = answerMode === 'checkbox'
+  const previousSummary = oldQuiz ? renderPreviousQuizSummary(oldQuiz, lang) : ''
+  const quizBody = answerMode === 'checkbox'
     ? renderQuizCommentCheckbox(quiz, lang)
     : renderQuizComment(quiz, lang)
+  const commentBody = previousSummary + quizBody
 
   const existingCommentId = await findAnyBalrogComment(octokit, ctx)
   let commentId: number

@@ -384,6 +384,110 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
 }
 
 // ---------------------------------------------------------------------------
+// Regenerating + previous quiz summary
+// ---------------------------------------------------------------------------
+
+export function renderRegeneratingComment(quiz: Quiz, language = 'en'): string {
+  const isFr = language.startsWith('fr')
+  const n = quiz.questions.length
+  const maxLabel = quiz.maxAttempts === 0 ? '∞' : String(quiz.maxAttempts)
+
+  const banner = isFr
+    ? '> 🔄 **Nouveau quiz en cours de génération...** Revenez dans quelques secondes.'
+    : '> 🔄 **Generating your new quiz...** Check back in a few seconds.'
+
+  const t = {
+    title:    isFr ? `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} avant le merge` : `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} before merge`,
+    threshold: isFr ? 'Seuil' : 'Threshold',
+    attempts:  isFr ? 'Tentatives' : 'Attempts',
+    multi:    isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
+  }
+
+  const history = renderAttemptsHistory(quiz, language)
+  const lines: string[] = []
+  if (history) lines.push(history)
+  lines.push(
+    `## ${t.title}`,
+    '',
+    banner,
+    '',
+    `| ${t.threshold} | ${t.attempts} | Questions |`,
+    `|:---:|:---:|:---:|`,
+    `| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`,
+    '',
+    '---',
+    '',
+  )
+
+  for (const q of quiz.questions) {
+    const multiTag = q.multi ? ` ${t.multi} ` : ''
+    lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
+    lines.push('')
+    lines.push(`- **A)** ${q.options[0]}`)
+    lines.push(`- **B)** ${q.options[1]}`)
+    lines.push(`- **C)** ${q.options[2]}`)
+    lines.push('')
+  }
+
+  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  lines.push(`<!-- balrog-mode: checkbox-regenerating -->`)
+
+  return lines.join('\n')
+}
+
+export function renderPreviousQuizSummary(quiz: Quiz, language = 'en'): string {
+  const isFr = language.startsWith('fr')
+  const n = quiz.questions.length
+  const cnt = quiz.attemptsUsed
+  const summaryTitle = isFr
+    ? `📜 Quiz précédent — ${n} question${n > 1 ? 's' : ''} (${cnt} tentative${cnt !== 1 ? 's' : ''})`
+    : `📜 Previous quiz — ${n} question${n > 1 ? 's' : ''} (${cnt} attempt${cnt !== 1 ? 's' : ''})`
+
+  const lines: string[] = []
+  lines.push('<details>')
+  lines.push(`<summary>${summaryTitle}</summary>`)
+  lines.push('')
+
+  const attempts = quiz.attempts ?? []
+  if (attempts.length > 0) {
+    lines.push(isFr ? '**Tentatives :**' : '**Attempts:**')
+    lines.push('')
+    for (const a of attempts) {
+      const ansStr = Object.entries(a.answers)
+        .sort(([x], [y]) => Number(x) - Number(y))
+        .map(([q, ans]) => `Q${q}: ${(ans as string[]).join(',')}`)
+        .join(' · ')
+      lines.push(`- Attempt ${a.n}: ${ansStr} — **${a.score}%**`)
+    }
+    lines.push('')
+    lines.push('---')
+    lines.push('')
+  }
+
+  lines.push(isFr ? '**Questions et réponses correctes :**' : '**Questions and correct answers:**')
+  lines.push('')
+
+  const optionLetters: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C']
+  for (const q of quiz.questions) {
+    const multiTag = q.multi ? ` *(${isFr ? 'plusieurs réponses' : 'multiple answers'})* ` : ''
+    lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
+    lines.push('')
+    for (let i = 0; i < q.options.length; i++) {
+      const letter = optionLetters[i]
+      const mark = q.correct.includes(letter) ? '✅' : '⬜'
+      lines.push(`- ${mark} **${letter})** ${q.options[i]}`)
+    }
+    lines.push(`> 💡 ${q.explanation}`)
+    lines.push('')
+  }
+
+  lines.push('</details>')
+  lines.push('')
+
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Answer parsing (!balrog command)
 // ---------------------------------------------------------------------------
 
