@@ -270,9 +270,9 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
     const multiTag = q.multi ? ` ${t.multi} ` : ''
     lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
     lines.push('')
-    lines.push(`- [${prev.includes('A') ? 'x' : ' '}] **Q${q.id}A)** ${q.options[0]}`)
-    lines.push(`- [${prev.includes('B') ? 'x' : ' '}] **Q${q.id}B)** ${q.options[1]}`)
-    lines.push(`- [${prev.includes('C') ? 'x' : ' '}] **Q${q.id}C)** ${q.options[2]}`)
+    lines.push(`- [${prev.includes('A') ? 'x' : ' '}] **A)** ${q.options[0]}`)
+    lines.push(`- [${prev.includes('B') ? 'x' : ' '}] **B)** ${q.options[1]}`)
+    lines.push(`- [${prev.includes('C') ? 'x' : ' '}] **C)** ${q.options[2]}`)
     lines.push('')
   }
 
@@ -287,32 +287,41 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
   return lines.join('\n')
 }
 
-// Parses checkbox state from a rendered quiz comment body.
-// Returns null if the submit checkbox is not checked.
-export function parseCheckboxAnswers(body: string): SubmittedAnswers | null {
-  // Must have submit checkbox checked
-  if (!/- \[x\] ✅ (Submit my answers|Soumettre mes réponses)/i.test(body)) return null
-
+// Parses currently-checked answer options from a checkbox comment body,
+// associating each A/B/C option with the nearest preceding **Qn.** heading.
+export function parseCurrentSelections(body: string): SubmittedAnswers {
   const answers: SubmittedAnswers = {}
-  // Match lines like: - [x] **Q1A)** text  or  - [ ] **Q2B)** text
-  const lineRegex = /- \[(x| )\] \*\*Q(\d+)([ABC])\)\*\*/gi
-  let match: RegExpExecArray | null
+  let currentQ: string | null = null
 
-  while ((match = lineRegex.exec(body)) !== null) {
-    const checked = match[1].toLowerCase() === 'x'
-    const qNum = match[2]
-    const letter = match[3].toUpperCase() as 'A' | 'B' | 'C'
-    if (!answers[qNum]) answers[qNum] = []
-    if (checked) answers[qNum].push(letter)
+  for (const line of body.split('\n')) {
+    const qMatch = line.match(/^\*\*Q(\d+)\./)
+    if (qMatch) {
+      currentQ = qMatch[1]
+      continue
+    }
+    if (currentQ) {
+      const optMatch = line.match(/^- \[(x| )\] \*\*([ABC])\)/)
+      if (optMatch) {
+        const checked = optMatch[1].toLowerCase() === 'x'
+        const letter = optMatch[2].toUpperCase() as 'A' | 'B' | 'C'
+        if (!answers[currentQ]) answers[currentQ] = []
+        if (checked) answers[currentQ].push(letter)
+      }
+    }
   }
 
-  // Strip questions with no checked answers, then require at least one
   for (const k of Object.keys(answers)) {
     if (answers[k].length === 0) delete answers[k]
   }
-  if (Object.keys(answers).length === 0) return null
-
   return answers
+}
+
+// Parses checkbox state from a rendered quiz comment body.
+// Returns null if the submit checkbox is not checked.
+export function parseCheckboxAnswers(body: string): SubmittedAnswers | null {
+  if (!/- \[x\] ✅ (Submit my answers|Soumettre mes réponses)/i.test(body)) return null
+  const answers = parseCurrentSelections(body)
+  return Object.keys(answers).length === 0 ? null : answers
 }
 
 export function parseRetryCheckbox(body: string): boolean {

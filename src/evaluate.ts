@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import { parseAnswerComment, parseCheckboxAnswers, parseRetryCheckbox, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox, renderQuizComment, renderFightingBanner, renderUpdatedAt, renderRegeneratingComment } from './quiz'
+import { parseAnswerComment, parseCheckboxAnswers, parseCurrentSelections, parseRetryCheckbox, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox, renderQuizComment, renderFightingBanner, renderUpdatedAt, renderRegeneratingComment } from './quiz'
 import {
   loadQuizArtifact,
   saveQuizArtifact,
@@ -237,19 +237,7 @@ async function run(): Promise<void> {
       // Checkbox mode: re-render quiz comment clearing the retry checkbox but preserving answer selections
       if (eventAction === 'edited' && quizForRetry) {
         const lang = language === 'auto' ? detectLanguage(quizForRetry) : language
-        const currentSelections: SubmittedAnswers = {}
-        const lineRegex = /- \[(x| )\] \*\*Q(\d+)([ABC])\)\*\*/gi
-        let m: RegExpExecArray | null
-        while ((m = lineRegex.exec(commentBody)) !== null) {
-          const checked = m[1].toLowerCase() === 'x'
-          const qNum = m[2]
-          const letter = m[3].toUpperCase() as 'A' | 'B' | 'C'
-          if (!currentSelections[qNum]) currentSelections[qNum] = []
-          if (checked) currentSelections[qNum].push(letter)
-        }
-        for (const k of Object.keys(currentSelections)) {
-          if (currentSelections[k].length === 0) delete currentSelections[k]
-        }
+        const currentSelections = parseCurrentSelections(commentBody)
         const reset = renderQuizCommentCheckbox(quizForRetry, lang, currentSelections)
         await updateComment(octokit, ctx, comment!.id as number, reset + '\n\n' + renderUpdatedAt(new Date(), lang))
       }

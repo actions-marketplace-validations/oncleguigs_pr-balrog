@@ -4,6 +4,7 @@ import {
   evaluateQuiz,
   parseAnswerComment,
   parseCheckboxAnswers,
+  parseCurrentSelections,
   parseRetryCheckbox,
   renderQuizComment,
   renderQuizCommentCheckbox,
@@ -228,9 +229,9 @@ describe('renderQuizCommentCheckbox', () => {
   it('contains task-list checkboxes for each option', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderQuizCommentCheckbox(quiz)
-    expect(comment).toContain('- [ ] **Q1A)**')
-    expect(comment).toContain('- [ ] **Q1B)**')
-    expect(comment).toContain('- [ ] **Q1C)**')
+    expect(comment).toContain('- [ ] **A)**')
+    expect(comment).toContain('- [ ] **B)**')
+    expect(comment).toContain('- [ ] **C)**')
   })
 
   it('contains the submit checkbox', () => {
@@ -260,14 +261,35 @@ describe('renderQuizCommentCheckbox', () => {
   })
 })
 
+describe('parseCurrentSelections', () => {
+  it('parses selections from rendered checkbox comment', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const previousAnswers = { '1': ['B'] as ('A'|'B'|'C')[], '3': ['A', 'B'] as ('A'|'B'|'C')[] }
+    const body = renderQuizCommentCheckbox(quiz, 'en', previousAnswers)
+    const sel = parseCurrentSelections(body)
+    expect(sel['1']).toEqual(['B'])
+    expect(sel['3']).toEqual(['A', 'B'])
+    expect(sel['2']).toBeUndefined()
+  })
+
+  it('returns empty object when nothing checked', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const body = renderQuizCommentCheckbox(quiz)
+    expect(parseCurrentSelections(body)).toEqual({})
+  })
+})
+
 describe('parseCheckboxAnswers', () => {
   const makeBody = (checks: Record<string, string[]>, submitChecked = true) => {
     const lines: string[] = []
     for (let q = 1; q <= 3; q++) {
+      lines.push(`**Q${q}.** question text`)
+      lines.push('')
       for (const letter of ['A', 'B', 'C']) {
-        const checked = (checks[q] ?? []).includes(letter) ? 'x' : ' '
-        lines.push(`- [${checked}] **Q${q}${letter})** option text`)
+        const checked = (checks[String(q)] ?? []).includes(letter) ? 'x' : ' '
+        lines.push(`- [${checked}] **${letter})** option text`)
       }
+      lines.push('')
     }
     lines.push(submitChecked ? '- [x] ✅ Submit my answers' : '- [ ] ✅ Submit my answers')
     return lines.join('\n')
@@ -313,8 +335,9 @@ describe('renderLockedQuizComment', () => {
   it('has no answer-option checkboxes (A/B/C are plain text)', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderLockedQuizComment(quiz)
-    expect(comment).not.toContain('**Q1A)**')
-    expect(comment).not.toContain('[x]')
+    expect(comment).not.toContain('- [ ] **A)**')
+    expect(comment).not.toContain('- [ ] **B)**')
+    expect(comment).not.toContain('- [ ] **C)**')
   })
 
   it('has retry checkbox when not passed', () => {
