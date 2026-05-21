@@ -1,11 +1,13 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import type { AIProvider, QuizSize } from './types'
-import { pickQuizSize, buildQuiz, renderQuizComment } from './quiz'
+import type { AIProvider, AnswerMode, QuizSize } from './types'
+import { pickQuizSize, buildQuiz, renderQuizComment, renderQuizCommentCheckbox } from './quiz'
 import {
   fetchFilteredDiff,
   createPendingCheck,
   postComment,
+  updateComment,
+  findAnyBalrogComment,
   saveQuizArtifact,
 } from './github'
 import { createProvider } from './providers'
@@ -22,6 +24,7 @@ async function run(): Promise<void> {
   const excludeRaw = core.getInput('exclude-patterns') || '*.lock,*.min.js,*-lock.json,*.snap'
   const language = core.getInput('language') || 'auto'
   const additionalPrompt = core.getInput('additional-prompt') || undefined
+  const answerMode = (core.getInput('answer-mode') || 'command') as AnswerMode
 
   const excludePatterns = excludeRaw
     .split(',')
@@ -102,13 +105,25 @@ async function run(): Promise<void> {
   const questions = await adapter.generateQuiz({ diff, numQuestions, language, additionalPrompt })
 
   // Persist quiz + correct answers as artifact (author can't see this)
-  const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts)
+  const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode)
   await saveQuizArtifact(quiz)
 
-  // Post quiz comment (without correct answers)
-  const commentBody = renderQuizComment(quiz, language === 'auto' ? 'en' : language)
-  const commentId = await postComment(octokit, ctx, commentBody)
-  core.info(`Posted quiz comment #${commentId}`)
+  // Post or update quiz comment (without correct answers)
+  const lang = language === 'auto' ? 'en' : language
+  const commentBody = answerMode === 'checkbox'
+    ? renderQuizCommentCheckbox(quiz, lang)
+    : renderQuizComment(quiz, lang)
+
+  const existingCommentId = await findAnyBalrogComment(octokit, ctx)
+  let commentId: number
+  if (existingCommentId) {
+    await updateComment(octokit, ctx, existingCommentId, commentBody)
+    commentId = existingCommentId
+    core.info(`Updated existing quiz comment #${commentId} (mode: ${answerMode})`)
+  } else {
+    commentId = await postComment(octokit, ctx, commentBody)
+    core.info(`Posted new quiz comment #${commentId} (mode: ${answerMode})`)
+  }
 
   // Create pending check — this is what blocks the merge
   const checkId = await createPendingCheck(octokit, ctx)

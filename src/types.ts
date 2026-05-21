@@ -19,6 +19,7 @@ export const QuizSchema = z.object({
   maxAttempts: z.number().int().min(0),
   attemptsUsed: z.number().int().min(0).default(0),
   passed: z.boolean().default(false),
+  answerMode: z.enum(['command', 'checkbox']).default('command'),
 })
 
 export const SubmittedAnswersSchema = z.record(
@@ -33,6 +34,7 @@ export type SubmittedAnswers = z.infer<typeof SubmittedAnswersSchema>
 export type QuizSize = 3 | 5 | 10
 
 export type AIProvider = 'anthropic' | 'openai' | 'github-models' | 'azure-openai' | 'ollama'
+export type AnswerMode = 'command' | 'checkbox'
 
 export interface GenerateQuizOptions {
   diff: string

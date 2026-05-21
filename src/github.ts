@@ -194,6 +194,39 @@ export async function updateComment(
   })
 }
 
+export async function findQuizComment(
+  octokit: Octokit,
+  ctx: RepoContext,
+  quizId: string,
+): Promise<number | null> {
+  return findBalrogComment(octokit, ctx, `<!-- balrog-quiz-id: ${quizId} -->`)
+}
+
+export async function findAnyBalrogComment(
+  octokit: Octokit,
+  ctx: RepoContext,
+): Promise<number | null> {
+  return findBalrogComment(octokit, ctx, '<!-- balrog-quiz-id:')
+}
+
+async function findBalrogComment(
+  octokit: Octokit,
+  ctx: RepoContext,
+  marker: string,
+): Promise<number | null> {
+  for await (const page of octokit.paginate.iterator(octokit.rest.issues.listComments, {
+    owner: ctx.owner,
+    repo: ctx.repo,
+    issue_number: ctx.prNumber,
+    per_page: 100,
+  })) {
+    for (const comment of page.data) {
+      if ((comment.body ?? '').includes(marker)) return comment.id
+    }
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Artifact storage (quiz + answers)
 // ---------------------------------------------------------------------------

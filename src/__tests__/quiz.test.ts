@@ -3,7 +3,10 @@ import {
   buildQuiz,
   evaluateQuiz,
   parseAnswerComment,
+  parseCheckboxAnswers,
   renderQuizComment,
+  renderQuizCommentCheckbox,
+  renderLockedQuizComment,
   renderResultComment,
 } from '../quiz'
 import type { Question } from '../types'
@@ -212,6 +215,106 @@ describe('renderQuizComment', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 0)
     const comment = renderQuizComment(quiz)
     expect(comment).toContain('∞')
+  })
+})
+
+describe('renderQuizCommentCheckbox', () => {
+  it('contains task-list checkboxes for each option', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderQuizCommentCheckbox(quiz)
+    expect(comment).toContain('- [ ] **Q1A)**')
+    expect(comment).toContain('- [ ] **Q1B)**')
+    expect(comment).toContain('- [ ] **Q1C)**')
+  })
+
+  it('contains the submit checkbox', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderQuizCommentCheckbox(quiz)
+    expect(comment).toContain('- [ ] ✅ Submit my answers')
+  })
+
+  it('contains checkbox mode marker', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderQuizCommentCheckbox(quiz)
+    expect(comment).toContain('<!-- balrog-mode: checkbox -->')
+  })
+
+  it('does NOT expose correct answers', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderQuizCommentCheckbox(quiz)
+    expect(comment).not.toContain('"correct"')
+    expect(comment).not.toContain('"B"')
+  })
+
+  it('renders in French', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderQuizCommentCheckbox(quiz, 'fr')
+    expect(comment).toContain('Soumettre mes réponses')
+    expect(comment).toContain('avant le merge')
+  })
+})
+
+describe('parseCheckboxAnswers', () => {
+  const makeBody = (checks: Record<string, string[]>, submitChecked = true) => {
+    const lines: string[] = []
+    for (let q = 1; q <= 3; q++) {
+      for (const letter of ['A', 'B', 'C']) {
+        const checked = (checks[q] ?? []).includes(letter) ? 'x' : ' '
+        lines.push(`- [${checked}] **Q${q}${letter})** option text`)
+      }
+    }
+    lines.push(submitChecked ? '- [x] ✅ Submit my answers' : '- [ ] ✅ Submit my answers')
+    return lines.join('\n')
+  }
+
+  it('returns null when submit not checked', () => {
+    const body = makeBody({ '1': ['B'], '2': ['A', 'B'], '3': ['B'] }, false)
+    expect(parseCheckboxAnswers(body)).toBeNull()
+  })
+
+  it('parses single checked answers', () => {
+    const body = makeBody({ '1': ['B'], '2': ['C'], '3': ['A'] })
+    expect(parseCheckboxAnswers(body)).toEqual({ '1': ['B'], '2': ['C'], '3': ['A'] })
+  })
+
+  it('parses multi checked answers', () => {
+    const body = makeBody({ '1': ['B'], '2': ['A', 'B'], '3': ['B'] })
+    expect(parseCheckboxAnswers(body)).toEqual({ '1': ['B'], '2': ['A', 'B'], '3': ['B'] })
+  })
+
+  it('returns null when no answers checked but submit is checked', () => {
+    const body = makeBody({})
+    expect(parseCheckboxAnswers(body)).toBeNull()
+  })
+
+  it('parses French submit label', () => {
+    const body = makeBody({ '1': ['A'] }, false).replace(
+      '- [ ] ✅ Submit my answers',
+      '- [x] ✅ Soumettre mes réponses',
+    )
+    expect(parseCheckboxAnswers(body)).toEqual({ '1': ['A'] })
+  })
+})
+
+describe('renderLockedQuizComment', () => {
+  it('contains the locked banner', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderLockedQuizComment(quiz)
+    expect(comment).toContain('🔒')
+    expect(comment).toContain('locked')
+  })
+
+  it('has no task-list checkboxes', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderLockedQuizComment(quiz)
+    expect(comment).not.toContain('- [ ]')
+    expect(comment).not.toContain('- [x]')
+  })
+
+  it('uses checkbox-locked marker', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderLockedQuizComment(quiz)
+    expect(comment).toContain('<!-- balrog-mode: checkbox-locked -->')
   })
 })
 

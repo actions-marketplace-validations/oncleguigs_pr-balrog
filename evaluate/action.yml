@@ -11,6 +11,10 @@ inputs:
     description: 'Language override (auto = detect from quiz)'
     required: false
     default: 'auto'
+  answer-mode:
+    description: 'Must match the value set in the generate step: command or checkbox'
+    required: false
+    default: 'command'
   quiz-responder:
     description: 'Who can answer the quiz and trigger !balrog commands: author | reviewer | collaborator | any'
     required: false

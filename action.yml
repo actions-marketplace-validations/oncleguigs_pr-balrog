@@ -61,6 +61,11 @@ inputs:
     required: false
     default: ''
 
+  answer-mode:
+    description: 'How authors submit answers: command (!balrog 1:A 2:B) or checkbox (task-list checkboxes in the quiz comment)'
+    required: false
+    default: 'command'
+
   pr-number-override:
     description: 'Override PR number — used when triggered via workflow_dispatch (!balrog retry). Leave empty for normal pull_request events.'
     required: false

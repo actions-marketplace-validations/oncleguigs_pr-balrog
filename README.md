@@ -110,7 +110,7 @@ name: PR Balrog — Evaluate Answers
 
 on:
   issue_comment:
-    types: [created]
+    types: [created, edited]  # 'edited' is required for checkbox mode
 
 permissions:
   checks: write
@@ -229,6 +229,27 @@ Balrog then posts the result:
 
 ---
 
+### Checkbox mode
+
+Set `answer-mode: checkbox` in the generate step to render the quiz with clickable task-list checkboxes instead of the `!balrog` command:
+
+```
+**Q1.** Why was the connection pool size increased from 10 to 50?
+
+- [ ] **Q1A)** To reduce memory usage
+- [ ] **Q1B)** To handle higher concurrent load from the new /stream endpoint
+- [ ] **Q1C)** It was an arbitrary default value
+
+---
+- [ ] ✅ Submit my answers
+```
+
+The author clicks their answers, then clicks **✅ Submit my answers**. Balrog detects the checkbox edit via `issue_comment.edited`, evaluates, and locks the quiz comment so it can't be re-submitted by editing the checkboxes again.
+
+**Workflow requirement**: the evaluate workflow must listen on both `created` and `edited` issue comment events (see setup above).
+
+---
+
 ## Commands
 
 | Command | Who | Description |
@@ -254,6 +275,7 @@ Balrog then posts the result:
 | `exclude-patterns` | `*.lock,...` | Comma-separated globs to exclude from diff |
 | `language` | `auto` | `auto` \| `en` \| `fr` \| `es` \| ... |
 | `additional-prompt` | — | Extra instructions appended to the AI prompt |
+| `answer-mode` | `command` | `command` (type `!balrog 1:A 2:B`) \| `checkbox` (click task-list checkboxes in the quiz comment) |
 | `quiz-responder` | `author` | Who can answer the quiz: `author` \| `reviewer` \| `collaborator` \| `any` |
 
 ### Quiz size (auto mode)
