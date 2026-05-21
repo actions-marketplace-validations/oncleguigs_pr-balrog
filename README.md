@@ -104,6 +104,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           language: 'auto'
+          # quiz-responder: 'author'   # author | reviewer | collaborator | any
 ```
 
 The built `dist/` is committed — no build step needed.
@@ -206,8 +207,8 @@ Balrog then posts the result:
 
 | Command | Who | Description |
 |---|---|---|
-| `!balrog 1:A 2:B,C 3:A` | PR author | Submit answers |
-| `!balrog retry` | PR author | Request a fresh quiz (only when attempts are exhausted) |
+| `!balrog 1:A 2:B,C 3:A` | Allowed responder (see `quiz-responder`) | Submit answers |
+| `!balrog retry` | Allowed responder (see `quiz-responder`) | Request a fresh quiz (only when attempts are exhausted) |
 | `!balrog retry --force` | Repo admins | Force-reset the quiz regardless of remaining attempts |
 
 ---
@@ -227,6 +228,7 @@ Balrog then posts the result:
 | `exclude-patterns` | `*.lock,...` | Comma-separated globs to exclude from diff |
 | `language` | `auto` | `auto` \| `en` \| `fr` \| `es` \| ... |
 | `additional-prompt` | — | Extra instructions appended to the AI prompt |
+| `quiz-responder` | `author` | Who can answer the quiz: `author` \| `reviewer` \| `collaborator` \| `any` |
 
 ### Quiz size (auto mode)
 
