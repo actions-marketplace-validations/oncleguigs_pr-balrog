@@ -106,6 +106,8 @@ jobs:
           quiz-size: 'auto'
           min-lines-threshold: '10'
           language: 'auto'
+          # answer-mode: 'checkbox'            # command (default) | checkbox
+          # quiz-responder: 'author'           # author | reviewer | collaborator | any
           pr-number-override: ${{ github.event.inputs.pr_number || '' }}
 ```
 
@@ -116,7 +118,7 @@ name: PR Balrog — Evaluate Answers
 
 on:
   issue_comment:
-    types: [created, edited]
+    types: [created, edited]   # 'edited' is required for checkbox mode
 
 permissions:
   checks: write
