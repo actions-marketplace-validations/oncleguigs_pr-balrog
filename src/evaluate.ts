@@ -325,8 +325,7 @@ async function run(): Promise<void> {
     }
     await saveQuizArtifact(updatedQuiz)
 
-    // Build single combined comment: result block + quiz section
-    const resultBlock = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
+    // Build single combined comment: history (top) + quiz (middle) + result (bottom)
     const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts
 
     let quizSection: string
@@ -340,7 +339,14 @@ async function run(): Promise<void> {
       quizSection = renderQuizComment(updatedQuiz, lang)
     }
 
-    const combined = resultBlock + '\n\n' + quizSection
+    const resultBlock = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
+
+    // Retry checkbox goes at very bottom (after result) so it's always visible
+    const retryLine = isCheckbox && !result.passed && attemptsExhausted
+      ? `\n\n- [ ] ${lang.startsWith('fr') ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz'}`
+      : ''
+
+    const combined = quizSection + '\n\n' + resultBlock + retryLine
     if (targetCommentId) {
       await updateComment(octokit, ctx, targetCommentId, withFooter(combined))
       core.info(`Updated quiz comment #${targetCommentId} with result`)

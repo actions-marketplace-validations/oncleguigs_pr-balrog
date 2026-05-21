@@ -123,15 +123,15 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
   const history = renderAttemptsHistory(quiz, language)
 
   const lines: string[] = []
+  if (history) {
+    lines.push(history.trimEnd())
+    lines.push('')
+  }
   lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
   lines.push('')
   lines.push('<details open>')
   lines.push(`<summary>${t.title}</summary>`)
   lines.push('')
-  if (history) {
-    lines.push(history.trimEnd())
-    lines.push('')
-  }
   lines.push(t.subtitle)
   lines.push('')
   lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
@@ -246,16 +246,16 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
   const history = renderAttemptsHistory(quiz, language)
 
   const lines: string[] = []
+  if (history) {
+    lines.push(history.trimEnd())
+    lines.push('')
+  }
   lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
   lines.push(`<!-- balrog-mode: checkbox -->`)
   lines.push('')
   lines.push('<details open>')
   lines.push(`<summary>${t.title}</summary>`)
   lines.push('')
-  if (history) {
-    lines.push(history.trimEnd())
-    lines.push('')
-  }
   lines.push(t.subtitle)
   lines.push('')
   lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
@@ -359,16 +359,16 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
   const history = renderAttemptsHistory(quiz, language)
 
   const lines: string[] = []
+  if (history) {
+    lines.push(history.trimEnd())
+    lines.push('')
+  }
   lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
   lines.push(`<!-- balrog-mode: checkbox-locked -->`)
   lines.push('')
   lines.push('<details>')
   lines.push(`<summary>${t.title} 🔒</summary>`)
   lines.push('')
-  if (history) {
-    lines.push(history.trimEnd())
-    lines.push('')
-  }
   lines.push(banner)
   lines.push('')
   lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
@@ -389,11 +389,6 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
   }
 
   lines.push('</details>')
-
-  if (!quiz.passed) {
-    lines.push('')
-    lines.push(`- [ ] ${t.retry_ck}`)
-  }
 
   return lines.join('\n')
 }

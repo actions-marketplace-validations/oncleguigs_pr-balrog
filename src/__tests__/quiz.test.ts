@@ -340,16 +340,10 @@ describe('renderLockedQuizComment', () => {
     expect(comment).not.toContain('- [ ] **C)**')
   })
 
-  it('has retry checkbox when not passed', () => {
+  it('does not include retry checkbox (caller appends it)', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
-    const comment = renderLockedQuizComment({ ...quiz, passed: false })
-    expect(comment).toContain('- [ ] 🔄 Request a new quiz')
-  })
-
-  it('has no retry checkbox when passed', () => {
-    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
-    const comment = renderLockedQuizComment({ ...quiz, passed: true })
-    expect(comment).not.toContain('🔄 Request a new quiz')
+    expect(renderLockedQuizComment({ ...quiz, passed: false })).not.toContain('🔄 Request a new quiz')
+    expect(renderLockedQuizComment({ ...quiz, passed: true })).not.toContain('🔄 Request a new quiz')
   })
 
   it('uses checkbox-locked marker', () => {
@@ -398,25 +392,25 @@ describe('renderAttemptsHistory', () => {
     expect(out).toContain('Tentatives passées (1)')
   })
 
-  it('injects history inside quiz comment details, before questions', () => {
+  it('renders history before quiz ID marker in quiz comment', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const comment = renderQuizComment({ ...quiz, attempts })
     expect(comment).toContain('Past attempts')
-    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('**Q1.**'))
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('<!-- balrog-quiz-id:'))
   })
 
-  it('injects history inside checkbox comment details, before questions', () => {
+  it('renders history before mode marker in checkbox comment', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const comment = renderQuizCommentCheckbox({ ...quiz, attempts })
     expect(comment).toContain('Past attempts')
-    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('**Q1.**'))
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('<!-- balrog-mode:'))
   })
 
-  it('injects history inside locked comment details, before questions', () => {
+  it('renders history before mode marker in locked comment', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const comment = renderLockedQuizComment({ ...quiz, attempts })
     expect(comment).toContain('Past attempts')
-    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('**Q1.**'))
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('<!-- balrog-mode:'))
   })
 })
 
@@ -495,14 +489,9 @@ describe('retry checkbox in rendered comments', () => {
     expect(body).toContain('- [ ] 🔄 Request a new quiz')
   })
 
-  it('locked comment (not passed) contains retry checkbox', () => {
-    const locked = renderLockedQuizComment({ ...quiz, passed: false, attemptsUsed: 3 })
-    expect(locked).toContain('- [ ] 🔄 Request a new quiz')
-  })
-
-  it('locked comment (passed) does NOT contain retry checkbox', () => {
-    const locked = renderLockedQuizComment({ ...quiz, passed: true })
-    expect(locked).not.toContain('🔄 Request a new quiz')
+  it('locked comment does NOT contain retry checkbox (appended by caller)', () => {
+    expect(renderLockedQuizComment({ ...quiz, passed: false, attemptsUsed: 3 })).not.toContain('🔄 Request a new quiz')
+    expect(renderLockedQuizComment({ ...quiz, passed: true })).not.toContain('🔄 Request a new quiz')
   })
 })
 
