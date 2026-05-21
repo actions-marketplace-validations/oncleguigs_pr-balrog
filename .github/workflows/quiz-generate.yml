@@ -25,6 +25,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
 
     steps:
+      - name: Checkout (needed to run local action)
+        uses: actions/checkout@v4
+
       - name: Generate quiz
         uses: ./   # use local action (replace with: your-org/pr-balrog@v1 after publishing)
         with:
