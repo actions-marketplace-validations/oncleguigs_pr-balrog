@@ -41,16 +41,21 @@ PR opened
     │
     ▼
 Balrog generates N questions from your diff via AI
-Posts quiz as a PR comment
+Posts quiz as a PR comment (single comment, updated in-place)
 Sets "PR Balrog" check → pending (merge blocked)
     │
     ▼
-Author replies: !balrog 1:B 2:A,C 3:B
-    │
+Author answers (command mode)          Author answers (checkbox mode)
+  Reply: !balrog 1:B 2:A,C 3:B          Tick boxes → tick ✅ Submit
+    │                                      │
+    └──────────────┬────────────────────────┘
+                   │
+        ⚔️ Fighting banner shown while evaluating
+                   │
     ├─ score ≥ threshold  →  check passes  →  merge unlocked ✅
     └─ score < threshold  →  attempts left?
-            ├─ yes  →  try again
-            └─ no   →  type !balrog retry to get a fresh quiz
+            ├─ yes  →  quiz resets, past attempt saved to history
+            └─ no   →  retry checkbox / !balrog retry for a fresh quiz
 ```
 
 No external server. Pure GitHub Actions + GitHub Checks API.
@@ -238,17 +243,28 @@ Set `answer-mode: checkbox` in the generate step to render the quiz with clickab
 ```
 **Q1.** Why was the connection pool size increased from 10 to 50?
 
-- [ ] **Q1A)** To reduce memory usage
-- [ ] **Q1B)** To handle higher concurrent load from the new /stream endpoint
-- [ ] **Q1C)** It was an arbitrary default value
+- [ ] **A)** To reduce memory usage
+- [ ] **B)** To handle higher concurrent load from the new /stream endpoint
+- [ ] **C)** It was an arbitrary default value
 
 ---
 - [ ] ✅ Submit my answers
 ```
 
-The author clicks their answers, then clicks **✅ Submit my answers**. Balrog detects the checkbox edit via `issue_comment.edited`, evaluates, and locks the quiz comment so it can't be re-submitted by editing the checkboxes again.
+The author clicks their answers, then clicks **✅ Submit my answers**. Balrog detects the checkbox edit via `issue_comment.edited`, evaluates, and locks the quiz comment so it can't be re-submitted.
+
+When all attempts are exhausted a **🔄 Request a new quiz** checkbox is appended at the bottom of the result — no separate command needed.
 
 **Workflow requirement**: the evaluate workflow must listen on both `created` and `edited` issue comment events (see setup above).
+
+---
+
+### UX details
+
+- **Single comment** — quiz questions and result live in the same PR comment, updated in-place on every attempt. No comment flood.
+- **Collapsible sections** — quiz and result are each wrapped in a `<details open>` block to keep the PR timeline compact.
+- **Fighting banner** — while evaluation runs the quiz comment briefly shows `⚔️ Balrog is fighting you...` so the author knows it's working.
+- **Attempt history** — past attempts (answers + score) are preserved across retries in a collapsible `📜 History` block at the top of the quiz comment. Previous quizzes (different questions) are each shown as a nested dropdown with their questions and correct answers revealed.
 
 ---
 
