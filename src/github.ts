@@ -206,7 +206,7 @@ export async function findAnyBalrogComment(
   octokit: Octokit,
   ctx: RepoContext,
 ): Promise<number | null> {
-  return findBalrogComment(octokit, ctx, '<!-- balrog-quiz-id:')
+  return findBalrogComment(octokit, ctx, '<!-- balrog-result -->')
 }
 
 async function findBalrogComment(
