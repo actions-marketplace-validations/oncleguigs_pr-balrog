@@ -241,7 +241,8 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
     howto:    isFr ? '**Comment répondre :** Coche tes réponses puis coche **✅ Soumettre**.' : '**How to answer:** Check your answers then check **✅ Submit my answers**.',
     multi:    isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
     submit:   isFr ? '✅ Soumettre mes réponses' : '✅ Submit my answers',
-    retry:    isFr ? 'Plus de tentatives ? Tapez `!balrog retry`.' : 'Out of attempts? Type `!balrog retry`.',
+    retry:    isFr ? 'Plus de tentatives ? Cochez **🔄 Demander un nouveau quiz** ci-dessous.' : 'Out of attempts? Tick **🔄 Request a new quiz** below.',
+    retry_ck: isFr ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz',
   }
 
   const history = renderAttemptsHistory(quiz, language)
@@ -278,6 +279,7 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
   lines.push('---')
   lines.push('')
   lines.push(`- [ ] ${t.submit}`)
+  lines.push(`- [ ] ${t.retry_ck}`)
   lines.push('')
   lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
   lines.push(`<!-- balrog-mode: checkbox -->`)
@@ -313,6 +315,16 @@ export function parseCheckboxAnswers(body: string): SubmittedAnswers | null {
   return answers
 }
 
+export function parseRetryCheckbox(body: string): boolean {
+  return /- \[x\] 🔄 (Request a new quiz|Demander un nouveau quiz)/i.test(body)
+}
+
+export function renderUpdatedAt(date: Date, language = 'en'): string {
+  const isFr = language.startsWith('fr')
+  const ts = date.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+  return isFr ? `<sub>Mis à jour ${ts}</sub>` : `<sub>Updated ${ts}</sub>`
+}
+
 // Replaces the live quiz comment with a locked version after submission.
 export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
   const isFr = language.startsWith('fr')
@@ -329,6 +341,7 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
     threshold: isFr ? 'Seuil' : 'Threshold',
     attempts:  isFr ? 'Tentatives restantes' : 'Attempts left',
     multi:    isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
+    retry_ck: isFr ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz',
   }
 
   const history = renderAttemptsHistory(quiz, language)
@@ -354,6 +367,13 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
     lines.push(`- **A)** ${q.options[0]}`)
     lines.push(`- **B)** ${q.options[1]}`)
     lines.push(`- **C)** ${q.options[2]}`)
+    lines.push('')
+  }
+
+  if (!quiz.passed) {
+    lines.push('---')
+    lines.push('')
+    lines.push(`- [ ] ${t.retry_ck}`)
     lines.push('')
   }
 

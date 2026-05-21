@@ -4,12 +4,14 @@ import {
   evaluateQuiz,
   parseAnswerComment,
   parseCheckboxAnswers,
+  parseRetryCheckbox,
   renderQuizComment,
   renderQuizCommentCheckbox,
   renderLockedQuizComment,
   renderResultComment,
   renderAttemptsHistory,
   renderFightingBanner,
+  renderUpdatedAt,
 } from '../quiz'
 import type { Question, AttemptRecord } from '../types'
 
@@ -306,11 +308,23 @@ describe('renderLockedQuizComment', () => {
     expect(comment).toContain('locked')
   })
 
-  it('has no task-list checkboxes', () => {
+  it('has no answer-option checkboxes (A/B/C are plain text)', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderLockedQuizComment(quiz)
-    expect(comment).not.toContain('- [ ]')
-    expect(comment).not.toContain('- [x]')
+    expect(comment).not.toContain('**Q1A)**')
+    expect(comment).not.toContain('[x]')
+  })
+
+  it('has retry checkbox when not passed', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderLockedQuizComment({ ...quiz, passed: false })
+    expect(comment).toContain('- [ ] 🔄 Request a new quiz')
+  })
+
+  it('has no retry checkbox when passed', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const comment = renderLockedQuizComment({ ...quiz, passed: true })
+    expect(comment).not.toContain('🔄 Request a new quiz')
   })
 
   it('uses checkbox-locked marker', () => {
@@ -414,5 +428,52 @@ describe('renderResultComment', () => {
     expect(comment).not.toContain(SAMPLE_QUESTIONS[0].explanation)
     // Q2 wrong — explanation should appear
     expect(comment).toContain(SAMPLE_QUESTIONS[1].explanation)
+  })
+})
+
+describe('parseRetryCheckbox', () => {
+  it('returns false when unchecked', () => {
+    expect(parseRetryCheckbox('- [ ] 🔄 Request a new quiz')).toBe(false)
+  })
+
+  it('returns true when checked (EN)', () => {
+    expect(parseRetryCheckbox('- [x] 🔄 Request a new quiz')).toBe(true)
+  })
+
+  it('returns true when checked (FR)', () => {
+    expect(parseRetryCheckbox('- [x] 🔄 Demander un nouveau quiz')).toBe(true)
+  })
+
+  it('returns false when submit is checked but not retry', () => {
+    expect(parseRetryCheckbox('- [x] ✅ Submit my answers\n- [ ] 🔄 Request a new quiz')).toBe(false)
+  })
+})
+
+describe('renderUpdatedAt', () => {
+  it('contains "Updated" label in English', () => {
+    expect(renderUpdatedAt(new Date('2026-05-21T11:33:00Z'))).toBe('<sub>Updated 2026-05-21 11:33 UTC</sub>')
+  })
+
+  it('contains "Mis à jour" label in French', () => {
+    expect(renderUpdatedAt(new Date('2026-05-21T11:33:00Z'), 'fr')).toBe('<sub>Mis à jour 2026-05-21 11:33 UTC</sub>')
+  })
+})
+
+describe('retry checkbox in rendered comments', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('active checkbox comment contains retry checkbox', () => {
+    const body = renderQuizCommentCheckbox(quiz)
+    expect(body).toContain('- [ ] 🔄 Request a new quiz')
+  })
+
+  it('locked comment (not passed) contains retry checkbox', () => {
+    const locked = renderLockedQuizComment({ ...quiz, passed: false, attemptsUsed: 3 })
+    expect(locked).toContain('- [ ] 🔄 Request a new quiz')
+  })
+
+  it('locked comment (passed) does NOT contain retry checkbox', () => {
+    const locked = renderLockedQuizComment({ ...quiz, passed: true })
+    expect(locked).not.toContain('🔄 Request a new quiz')
   })
 })
