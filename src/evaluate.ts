@@ -8,8 +8,6 @@ import {
   updateComment,
   findExistingCheck,
   findQuizComment,
-  findAnyBalrogComment,
-  findResultComment,
   updateCheckSuccess,
   updateCheckFailure,
 } from './github'
@@ -293,11 +291,13 @@ async function run(): Promise<void> {
     const lang = language === 'auto' ? detectLanguage(quiz) : language
     const withFooter = (body: string) => body + '\n\n' + renderUpdatedAt(new Date(), lang)
 
-    // Show fighting banner on quiz comment while evaluation runs
-    const fightingCommentId = isCheckbox
+    // Find the quiz comment — reuse for fighting banner and final update
+    const targetCommentId = isCheckbox
       ? (quizCommentId ?? await findQuizComment(octokit, ctx, quiz.id))
       : await findQuizComment(octokit, ctx, quiz.id)
-    if (fightingCommentId) {
+
+    // Show fighting banner while evaluation runs
+    if (targetCommentId) {
       try {
         const banner = renderFightingBanner(lang)
         let bannerBody: string
@@ -310,7 +310,7 @@ async function run(): Promise<void> {
         } else {
           bannerBody = banner + renderQuizComment(quiz, lang)
         }
-        await updateComment(octokit, ctx, fightingCommentId, withFooter(bannerBody))
+        await updateComment(octokit, ctx, targetCommentId, withFooter(bannerBody))
       } catch (e) {
         core.info(`Could not update quiz comment with fighting banner: ${e}`)
       }
@@ -325,30 +325,28 @@ async function run(): Promise<void> {
     }
     await saveQuizArtifact(updatedQuiz)
 
-    const resultBody = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
-    const existingResultId = await findResultComment(octokit, ctx)
-    if (existingResultId) {
-      await updateComment(octokit, ctx, existingResultId, withFooter(resultBody))
-      core.info(`Updated result comment #${existingResultId}`)
+    // Build single combined comment: result block + quiz section
+    const resultBlock = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
+    const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts
+
+    let quizSection: string
+    if (isCheckbox) {
+      if (result.passed || attemptsExhausted) {
+        quizSection = renderLockedQuizComment(updatedQuiz, lang)
+      } else {
+        quizSection = renderQuizCommentCheckbox(updatedQuiz, lang) // fresh checkboxes for next attempt
+      }
     } else {
-      await postComment(octokit, ctx, resultBody)
+      quizSection = renderQuizComment(updatedQuiz, lang)
     }
 
-    // Update the quiz comment: reset checkboxes for next attempt, or lock when done
-    if (isCheckbox) {
-      const targetCommentId = quizCommentId ?? await findQuizComment(octokit, ctx, quiz.id)
-      if (targetCommentId) {
-        const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts
-        if (result.passed || attemptsExhausted) {
-          const locked = renderLockedQuizComment(updatedQuiz, lang)
-          await updateComment(octokit, ctx, targetCommentId, withFooter(locked))
-          core.info(`Locked quiz comment #${targetCommentId}`)
-        } else {
-          const reset = renderQuizCommentCheckbox(updatedQuiz, lang, submittedAnswers)
-          await updateComment(octokit, ctx, targetCommentId, withFooter(reset))
-          core.info(`Reset quiz comment #${targetCommentId} for next attempt`)
-        }
-      }
+    const combined = resultBlock + '\n\n' + quizSection
+    if (targetCommentId) {
+      await updateComment(octokit, ctx, targetCommentId, withFooter(combined))
+      core.info(`Updated quiz comment #${targetCommentId} with result`)
+    } else {
+      await postComment(octokit, ctx, withFooter(combined))
+      core.info('No quiz comment found — posted new combined comment')
     }
 
     const checkId = await findExistingCheck(octokit, ctx)

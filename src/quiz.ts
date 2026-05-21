@@ -111,36 +111,38 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
   const maxLabel = quiz.maxAttempts === 0 ? '∞' : String(remaining)
 
   const t = {
-    title:       isFr ? `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} avant le merge` : `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} before merge`,
-    subtitle:    isFr ? '> **You shall not pass** — prouve que tu comprends tes propres changements.' : '> **You shall not pass** — prove you understand your own changes.',
-    threshold:   isFr ? 'Seuil' : 'Threshold',
-    attempts:    isFr ? 'Tentatives restantes' : 'Attempts left',
-    howto:       isFr ? '**Comment répondre :**' : '**How to answer:**',
-    multi:       isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
-    retry:       isFr ? 'Plus de tentatives ? Tapez `!balrog retry`.' : 'Out of attempts? Type `!balrog retry`.',
+    title:    isFr ? `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} avant le merge` : `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} before merge`,
+    subtitle: isFr ? '> **You shall not pass** — prouve que tu comprends tes propres changements.' : '> **You shall not pass** — prove you understand your own changes.',
+    threshold: isFr ? 'Seuil' : 'Threshold',
+    attempts:  isFr ? 'Tentatives restantes' : 'Attempts left',
+    howto:    isFr ? '**Comment répondre :**' : '**How to answer:**',
+    retry:    isFr ? 'Plus de tentatives ? Tapez `!balrog retry`.' : 'Out of attempts? Type `!balrog retry`.',
   }
 
   const exampleAnswers = quiz.questions.map((_, i) => `${i + 1}:A`).join(' ')
   const history = renderAttemptsHistory(quiz, language)
 
   const lines: string[] = []
-  if (history) lines.push(history)
-  lines.push(
-    `## ${t.title}`,
-    '',
-    t.subtitle,
-    '',
-    `| ${t.threshold} | ${t.attempts} | Questions |`,
-    `|:---:|:---:|:---:|`,
-    `| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`,
-    '',
-    `${t.howto} Reply with \`!balrog ${exampleAnswers}\` — separate multiple answers with a comma.`,
-    `<sub>${t.retry}</sub>`,
-    '',
-    '---',
-    '',
-  )
-
+  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  lines.push('')
+  lines.push('<details open>')
+  lines.push(`<summary>${t.title}</summary>`)
+  lines.push('')
+  if (history) {
+    lines.push(history.trimEnd())
+    lines.push('')
+  }
+  lines.push(t.subtitle)
+  lines.push('')
+  lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
+  lines.push(`|:---:|:---:|:---:|`)
+  lines.push(`| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`)
+  lines.push('')
+  lines.push(`${t.howto} Reply with \`!balrog ${exampleAnswers}\` — separate multiple answers with a comma.`)
+  lines.push(`<sub>${t.retry}</sub>`)
+  lines.push('')
+  lines.push('---')
+  lines.push('')
   for (const q of quiz.questions) {
     const multiTag = q.multi ? ` *(${isFr ? 'plusieurs réponses' : 'multiple answers'})* ` : ''
     lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
@@ -150,8 +152,7 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
     lines.push(`- **C)** ${q.options[2]}`)
     lines.push('')
   }
-
-  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  lines.push('</details>')
 
   return lines.join('\n')
 }
@@ -168,31 +169,26 @@ export function renderResultComment(result: QuizResult, language = 'en'): string
   const bar = scoreBar(score)
   const attLeft = attemptsLabel(quiz.attemptsUsed, quiz.maxAttempts, isFr)
 
+  const summaryLabel = passed
+    ? (isFr ? `✅ Quiz réussi — ${score}% — vous pouvez merger !` : `✅ Quiz passed — ${score}% — you may merge!`)
+    : (isFr ? `❌ Quiz échoué — ${score}% — ${attLeft}` : `❌ Quiz failed — ${score}% — ${attLeft}`)
+
   const lines: string[] = []
+  lines.push('<details open>')
+  lines.push(`<summary>${summaryLabel}</summary>`)
+  lines.push('')
 
   if (passed) {
-    lines.push(isFr
-      ? `## ✅ Quiz réussi — vous pouvez merger !`
-      : `## ✅ Quiz passed — you may merge!`)
-    lines.push('')
     lines.push(`\`${bar}\` **${score}%** — ${correctCount}/${total} ${isFr ? 'correcte(s)' : 'correct'}`)
-    lines.push('')
   } else {
-    lines.push(isFr
-      ? `## ❌ Quiz échoué`
-      : `## ❌ Quiz failed`)
-    lines.push('')
     lines.push(`\`${bar}\` **${score}%** — ${correctCount}/${total} ${isFr ? 'correcte(s)' : 'correct'} · ${attLeft}`)
-    lines.push('')
   }
-
+  lines.push('')
   lines.push('---')
   lines.push('')
 
   for (const r of perQuestion) {
     const q = quiz.questions.find((q) => q.id === r.questionId)!
-    const submitted = r.submitted.length ? r.submitted.join(', ') : '—'
-
     const submittedKbd = r.submitted.map((l) => `<kbd>${l}</kbd>`).join(' ')
 
     if (r.isCorrect) {
@@ -211,10 +207,12 @@ export function renderResultComment(result: QuizResult, language = 'en'): string
     lines.push(isFr
       ? '> 🔒 Plus de tentatives — tapez `!balrog retry` ou poussez un commit pour obtenir un nouveau quiz.'
       : '> 🔒 No attempts left — type `!balrog retry` or push a commit to get a fresh quiz.')
+    lines.push('')
   }
 
-  lines.push('')
   lines.push('<!-- balrog-result -->')
+  lines.push('')
+  lines.push('</details>')
 
   return lines.join('\n')
 }
@@ -246,23 +244,29 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
   }
 
   const history = renderAttemptsHistory(quiz, language)
+
   const lines: string[] = []
-  if (history) lines.push(history)
-  lines.push(
-    `## ${t.title}`,
-    '',
-    t.subtitle,
-    '',
-    `| ${t.threshold} | ${t.attempts} | Questions |`,
-    `|:---:|:---:|:---:|`,
-    `| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`,
-    '',
-    t.howto,
-    `<sub>${t.retry}</sub>`,
-    '',
-    '---',
-    '',
-  )
+  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  lines.push(`<!-- balrog-mode: checkbox -->`)
+  lines.push('')
+  lines.push('<details open>')
+  lines.push(`<summary>${t.title}</summary>`)
+  lines.push('')
+  if (history) {
+    lines.push(history.trimEnd())
+    lines.push('')
+  }
+  lines.push(t.subtitle)
+  lines.push('')
+  lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
+  lines.push(`|:---:|:---:|:---:|`)
+  lines.push(`| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`)
+  lines.push('')
+  lines.push(t.howto)
+  lines.push(`<sub>${t.retry}</sub>`)
+  lines.push('')
+  lines.push('---')
+  lines.push('')
 
   for (const q of quiz.questions) {
     const qKey = String(q.id)
@@ -281,8 +285,7 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
   lines.push(`- [ ] ${t.submit}`)
   lines.push(`- [ ] ${t.retry_ck}`)
   lines.push('')
-  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
-  lines.push(`<!-- balrog-mode: checkbox -->`)
+  lines.push('</details>')
 
   return lines.join('\n')
 }
@@ -342,8 +345,8 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
   const maxLabel = quiz.maxAttempts === 0 ? '∞' : String(remaining)
 
   const banner = isFr
-    ? '> 🔒 **Réponses soumises** — ce quiz est verrouillé. Attendez le résultat ci-dessous.'
-    : '> 🔒 **Answers submitted** — this quiz is locked. See the result comment below.'
+    ? '> 🔒 **Réponses soumises** — ce quiz est verrouillé.'
+    : '> 🔒 **Answers submitted** — this quiz is locked.'
 
   const t = {
     title:    isFr ? `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} avant le merge` : `🔥 PR Balrog — ${n} question${n > 1 ? 's' : ''} before merge`,
@@ -354,20 +357,26 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
   }
 
   const history = renderAttemptsHistory(quiz, language)
+
   const lines: string[] = []
-  if (history) lines.push(history)
-  lines.push(
-    `## ${t.title}`,
-    '',
-    banner,
-    '',
-    `| ${t.threshold} | ${t.attempts} | Questions |`,
-    `|:---:|:---:|:---:|`,
-    `| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`,
-    '',
-    '---',
-    '',
-  )
+  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  lines.push(`<!-- balrog-mode: checkbox-locked -->`)
+  lines.push('')
+  lines.push('<details>')
+  lines.push(`<summary>${t.title} 🔒</summary>`)
+  lines.push('')
+  if (history) {
+    lines.push(history.trimEnd())
+    lines.push('')
+  }
+  lines.push(banner)
+  lines.push('')
+  lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
+  lines.push(`|:---:|:---:|:---:|`)
+  lines.push(`| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`)
+  lines.push('')
+  lines.push('---')
+  lines.push('')
 
   for (const q of quiz.questions) {
     const multiTag = q.multi ? ` ${t.multi} ` : ''
@@ -379,15 +388,12 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
     lines.push('')
   }
 
+  lines.push('</details>')
+
   if (!quiz.passed) {
-    lines.push('---')
     lines.push('')
     lines.push(`- [ ] ${t.retry_ck}`)
-    lines.push('')
   }
-
-  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
-  lines.push(`<!-- balrog-mode: checkbox-locked -->`)
 
   return lines.join('\n')
 }
@@ -410,23 +416,24 @@ export function renderRegeneratingComment(quiz: Quiz, language = 'en'): string {
     threshold: isFr ? 'Seuil' : 'Threshold',
     attempts:  isFr ? 'Tentatives' : 'Attempts',
     multi:    isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
+    prev:     isFr ? 'Questions précédentes' : 'Previous questions',
   }
 
-  const history = renderAttemptsHistory(quiz, language)
   const lines: string[] = []
-  if (history) lines.push(history)
-  lines.push(
-    `## ${t.title}`,
-    '',
-    banner,
-    '',
-    `| ${t.threshold} | ${t.attempts} | Questions |`,
-    `|:---:|:---:|:---:|`,
-    `| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`,
-    '',
-    '---',
-    '',
-  )
+  lines.push(banner)
+  lines.push('')
+  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  lines.push(`<!-- balrog-mode: checkbox-regenerating -->`)
+  lines.push('')
+  lines.push('<details>')
+  lines.push(`<summary>${t.title} — ${t.prev}</summary>`)
+  lines.push('')
+  lines.push(`| ${t.threshold} | ${t.attempts} | Questions |`)
+  lines.push(`|:---:|:---:|:---:|`)
+  lines.push(`| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`)
+  lines.push('')
+  lines.push('---')
+  lines.push('')
 
   for (const q of quiz.questions) {
     const multiTag = q.multi ? ` ${t.multi} ` : ''
@@ -438,8 +445,7 @@ export function renderRegeneratingComment(quiz: Quiz, language = 'en'): string {
     lines.push('')
   }
 
-  lines.push(`<!-- balrog-quiz-id: ${quiz.id} -->`)
-  lines.push(`<!-- balrog-mode: checkbox-regenerating -->`)
+  lines.push('</details>')
 
   return lines.join('\n')
 }

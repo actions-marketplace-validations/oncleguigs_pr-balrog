@@ -398,22 +398,25 @@ describe('renderAttemptsHistory', () => {
     expect(out).toContain('Tentatives passées (1)')
   })
 
-  it('injects history at top of quiz comment', () => {
+  it('injects history inside quiz comment details, before questions', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const comment = renderQuizComment({ ...quiz, attempts })
-    expect(comment.indexOf('<details>')).toBeLessThan(comment.indexOf('## 🔥'))
+    expect(comment).toContain('Past attempts')
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('**Q1.**'))
   })
 
-  it('injects history at top of checkbox comment', () => {
+  it('injects history inside checkbox comment details, before questions', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const comment = renderQuizCommentCheckbox({ ...quiz, attempts })
-    expect(comment.indexOf('<details>')).toBeLessThan(comment.indexOf('## 🔥'))
+    expect(comment).toContain('Past attempts')
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('**Q1.**'))
   })
 
-  it('injects history at top of locked comment', () => {
+  it('injects history inside locked comment details, before questions', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const comment = renderLockedQuizComment({ ...quiz, attempts })
-    expect(comment.indexOf('<details>')).toBeLessThan(comment.indexOf('## 🔥'))
+    expect(comment).toContain('Past attempts')
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('**Q1.**'))
   })
 })
 
