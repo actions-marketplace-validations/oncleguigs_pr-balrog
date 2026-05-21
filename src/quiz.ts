@@ -70,9 +70,9 @@ function scoreBar(score: number, width = 10): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
-// Strips leading "A) ", "B) ", "C) ", "a. " etc. that the AI sometimes includes in option text.
+// Strips leading "A) ", "B. ", "C: " etc. that the AI sometimes includes in option text.
 function cleanOption(text: string): string {
-  return text.replace(/^\s*[A-Ca-c][.)]\s+/, '')
+  return text.replace(/^\s*[A-Ca-c][.):\-]\s+/, '')
 }
 
 function attemptsLabel(used: number, max: number, isFr: boolean): string {
