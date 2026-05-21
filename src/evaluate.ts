@@ -231,15 +231,17 @@ async function run(): Promise<void> {
     const quizForRetry = await loadQuizArtifact(prNumber, octokit, repo.owner, repo.repo, token)
     if (quizForRetry && quizForRetry.maxAttempts > 0 && quizForRetry.attemptsUsed < quizForRetry.maxAttempts) {
       const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed
-      await postComment(octokit, ctx,
-        `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`)
 
-      // Checkbox mode: re-render quiz comment clearing the retry checkbox but preserving answer selections
-      if (eventAction === 'edited' && quizForRetry) {
+      if (eventAction === 'edited') {
+        // Checkbox mode: show warning inside the quiz comment and clear retry checkbox
         const lang = language === 'auto' ? detectLanguage(quizForRetry) : language
+        const warning = `> ⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.\n\n`
         const currentSelections = parseCurrentSelections(commentBody)
         const reset = renderQuizCommentCheckbox(quizForRetry, lang, currentSelections)
-        await updateComment(octokit, ctx, comment!.id as number, reset + '\n\n' + renderUpdatedAt(new Date(), lang))
+        await updateComment(octokit, ctx, comment!.id as number, warning + reset + '\n\n' + renderUpdatedAt(new Date(), lang))
+      } else {
+        await postComment(octokit, ctx,
+          `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`)
       }
       return
     }
