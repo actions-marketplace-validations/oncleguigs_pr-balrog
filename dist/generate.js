@@ -118,8 +118,22 @@ async function run() {
     // Generate quiz
     const adapter = (0, providers_1.createProvider)(provider, apiKey, model);
     const questions = await adapter.generateQuiz({ diff, numQuestions, language, additionalPrompt });
+    // Load old quiz BEFORE saving the new one (both share the same artifact name)
+    const oldQuiz = await (0, github_1.loadQuizArtifact)(ctx.prNumber, octokit, ctx.owner, ctx.repo, token);
+    // Carry history forward so previous quiz questions + attempts are preserved
+    const previousQuizzes = oldQuiz ? [
+        ...(oldQuiz.previousQuizzes ?? []),
+        {
+            id: oldQuiz.id,
+            generatedAt: oldQuiz.generatedAt,
+            questions: oldQuiz.questions,
+            passThreshold: oldQuiz.passThreshold,
+            attempts: oldQuiz.attempts ?? [],
+            passed: oldQuiz.passed,
+        },
+    ] : [];
     // Persist quiz + correct answers as artifact (author can't see this)
-    const quiz = (0, quiz_1.buildQuiz)(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode);
+    const quiz = (0, quiz_1.buildQuiz)(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode, previousQuizzes);
     await (0, github_1.saveQuizArtifact)(quiz);
     // Post or update quiz comment (without correct answers)
     const lang = language === 'auto' ? 'en' : language;

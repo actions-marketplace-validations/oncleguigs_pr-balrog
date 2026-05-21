@@ -157,33 +157,17 @@ async function run() {
     // !balrog retry — regenerate quiz via workflow_dispatch
     // ---------------------------------------------------------------------------
     if (RETRY_REGEX.test(commentBody)) {
-        // Load quiz to check if they still have attempts left
-        const quizForRetry = await (0, github_1.loadQuizArtifact)(prNumber, octokit, repo.owner, repo.repo, token);
-        if (quizForRetry && quizForRetry.maxAttempts > 0 && quizForRetry.attemptsUsed < quizForRetry.maxAttempts) {
-            const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed;
-            await (0, github_1.postComment)(octokit, ctx, `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`);
-            return;
-        }
-        core.info(`@${commenterLogin} requested a retry`);
-        await (0, github_1.postComment)(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin));
-        // Trigger the generate workflow via workflow_dispatch
-        await octokit.rest.actions.createWorkflowDispatch({
-            owner: repo.owner,
-            repo: repo.repo,
-            workflow_id: 'quiz-generate.yml',
-            ref: prData.data.head.ref,
-            inputs: { pr_number: String(prNumber) },
-        });
-        core.info(`Dispatched quiz-generate.yml for PR #${prNumber} on ref ${prData.data.head.ref}`);
+        await handleRetryDispatch();
         return;
     }
     // ---------------------------------------------------------------------------
     // Checkbox mode — edited event from the quiz comment itself
     // ---------------------------------------------------------------------------
     if (eventAction === 'edited') {
-        // Only handle edits to the quiz comment (identified by the hidden marker)
-        if (!commentBody.includes('<!-- balrog-mode: checkbox -->')) {
-            core.info('Edited comment is not an active checkbox quiz, skipping');
+        const isActiveCheckbox = commentBody.includes('<!-- balrog-mode: checkbox -->');
+        const isLockedCheckbox = commentBody.includes('<!-- balrog-mode: checkbox-locked -->');
+        if (!isActiveCheckbox && !isLockedCheckbox) {
+            core.info('Edited comment is not a checkbox quiz, skipping');
             return;
         }
         // Verify editor is the PR author
@@ -191,12 +175,19 @@ async function run() {
             core.info(`Checkbox edit from @${commenterLogin}, not PR author @${ctx.authorLogin}, skipping`);
             return;
         }
-        const checkboxAnswers = (0, quiz_1.parseCheckboxAnswers)(commentBody);
-        if (!checkboxAnswers) {
-            core.info('Submit checkbox not checked yet, skipping');
+        // Retry wins over submit when both are checked
+        if ((0, quiz_1.parseRetryCheckbox)(commentBody)) {
+            await handleRetryDispatch();
             return;
         }
-        await handleEvaluation(checkboxAnswers, prNumber, comment.id, true);
+        if (isActiveCheckbox) {
+            const checkboxAnswers = (0, quiz_1.parseCheckboxAnswers)(commentBody);
+            if (!checkboxAnswers) {
+                core.info('Submit checkbox not checked yet, skipping');
+                return;
+            }
+            await handleEvaluation(checkboxAnswers, prNumber, comment.id, true);
+        }
         return;
     }
     // ---------------------------------------------------------------------------
@@ -209,6 +200,45 @@ async function run() {
     }
     core.info(`Parsed answers: ${JSON.stringify(answers)}`);
     await handleEvaluation(answers, prNumber, null, false);
+    // ---------------------------------------------------------------------------
+    // Shared retry dispatch logic
+    // ---------------------------------------------------------------------------
+    async function handleRetryDispatch() {
+        const quizForRetry = await (0, github_1.loadQuizArtifact)(prNumber, octokit, repo.owner, repo.repo, token);
+        if (quizForRetry && quizForRetry.maxAttempts > 0 && quizForRetry.attemptsUsed < quizForRetry.maxAttempts) {
+            const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed;
+            if (eventAction === 'edited') {
+                // Checkbox mode: show warning inside the quiz comment and clear retry checkbox
+                const lang = language === 'auto' ? detectLanguage(quizForRetry) : language;
+                const warning = `> ⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.\n\n`;
+                const currentSelections = (0, quiz_1.parseCurrentSelections)(commentBody);
+                const reset = (0, quiz_1.renderQuizCommentCheckbox)(quizForRetry, lang, currentSelections);
+                await (0, github_1.updateComment)(octokit, ctx, comment.id, warning + reset + '\n\n' + (0, quiz_1.renderUpdatedAt)(new Date(), lang));
+            }
+            else {
+                await (0, github_1.postComment)(octokit, ctx, `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`);
+            }
+            return;
+        }
+        core.info(`@${commenterLogin} requested a retry`);
+        // Checkbox mode: update the quiz comment with a regenerating banner (generate.ts will replace it)
+        if (eventAction === 'edited' && quizForRetry) {
+            const lang = language === 'auto' ? detectLanguage(quizForRetry) : language;
+            const banner = (0, quiz_1.renderRegeneratingComment)(quizForRetry, lang);
+            await (0, github_1.updateComment)(octokit, ctx, comment.id, banner + '\n\n' + (0, quiz_1.renderUpdatedAt)(new Date(), lang));
+        }
+        else {
+            await (0, github_1.postComment)(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin));
+        }
+        await octokit.rest.actions.createWorkflowDispatch({
+            owner: repo.owner,
+            repo: repo.repo,
+            workflow_id: 'quiz-generate.yml',
+            ref: prData.data.head.ref,
+            inputs: { pr_number: String(prNumber) },
+        });
+        core.info(`Dispatched quiz-generate.yml for PR #${prNumber} on ref ${prData.data.head.ref}`);
+    }
     // ---------------------------------------------------------------------------
     // Shared evaluation logic
     // ---------------------------------------------------------------------------
@@ -224,11 +254,13 @@ async function run() {
             return;
         }
         const lang = language === 'auto' ? detectLanguage(quiz) : language;
-        // Show fighting banner on quiz comment while evaluation runs
-        const fightingCommentId = isCheckbox
+        const withFooter = (body) => body + '\n\n' + (0, quiz_1.renderUpdatedAt)(new Date(), lang);
+        // Find the quiz comment — reuse for fighting banner and final update
+        const targetCommentId = isCheckbox
             ? (quizCommentId ?? await (0, github_1.findQuizComment)(octokit, ctx, quiz.id))
             : await (0, github_1.findQuizComment)(octokit, ctx, quiz.id);
-        if (fightingCommentId) {
+        // Show fighting banner while evaluation runs
+        if (targetCommentId) {
             try {
                 const banner = (0, quiz_1.renderFightingBanner)(lang);
                 let bannerBody;
@@ -242,7 +274,7 @@ async function run() {
                 else {
                     bannerBody = banner + (0, quiz_1.renderQuizComment)(quiz, lang);
                 }
-                await (0, github_1.updateComment)(octokit, ctx, fightingCommentId, bannerBody);
+                await (0, github_1.updateComment)(octokit, ctx, targetCommentId, withFooter(bannerBody));
             }
             catch (e) {
                 core.info(`Could not update quiz comment with fighting banner: ${e}`);
@@ -256,31 +288,33 @@ async function run() {
             attempts: [...(quiz.attempts ?? []), { n: quiz.attemptsUsed + 1, answers: submittedAnswers, score: result.score }],
         };
         await (0, github_1.saveQuizArtifact)(updatedQuiz);
-        const resultBody = (0, quiz_1.renderResultComment)({ ...result, quiz: updatedQuiz }, lang);
-        const existingResultId = await (0, github_1.findAnyBalrogComment)(octokit, ctx);
-        if (existingResultId) {
-            await (0, github_1.updateComment)(octokit, ctx, existingResultId, resultBody);
-            core.info(`Updated result comment #${existingResultId}`);
+        // Build single combined comment: history (top) + quiz (middle) + result (bottom)
+        const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts;
+        let quizSection;
+        if (isCheckbox) {
+            if (result.passed || attemptsExhausted) {
+                quizSection = (0, quiz_1.renderLockedQuizComment)(updatedQuiz, lang);
+            }
+            else {
+                quizSection = (0, quiz_1.renderQuizCommentCheckbox)(updatedQuiz, lang); // fresh checkboxes for next attempt
+            }
         }
         else {
-            await (0, github_1.postComment)(octokit, ctx, resultBody);
+            quizSection = (0, quiz_1.renderQuizComment)(updatedQuiz, lang);
         }
-        // Update the quiz comment: reset checkboxes for next attempt, or lock when done
-        if (isCheckbox) {
-            const targetCommentId = quizCommentId ?? await (0, github_1.findQuizComment)(octokit, ctx, quiz.id);
-            if (targetCommentId) {
-                const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts;
-                if (result.passed || attemptsExhausted) {
-                    const locked = (0, quiz_1.renderLockedQuizComment)(updatedQuiz, lang);
-                    await (0, github_1.updateComment)(octokit, ctx, targetCommentId, locked);
-                    core.info(`Locked quiz comment #${targetCommentId}`);
-                }
-                else {
-                    const reset = (0, quiz_1.renderQuizCommentCheckbox)(updatedQuiz, lang, submittedAnswers);
-                    await (0, github_1.updateComment)(octokit, ctx, targetCommentId, reset);
-                    core.info(`Reset quiz comment #${targetCommentId} for next attempt`);
-                }
-            }
+        const resultBlock = (0, quiz_1.renderResultComment)({ ...result, quiz: updatedQuiz }, lang);
+        // Retry checkbox goes at very bottom (after result) so it's always visible
+        const retryLine = isCheckbox && !result.passed && attemptsExhausted
+            ? `\n\n- [ ] ${lang.startsWith('fr') ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz'}`
+            : '';
+        const combined = quizSection + '\n\n' + resultBlock + retryLine;
+        if (targetCommentId) {
+            await (0, github_1.updateComment)(octokit, ctx, targetCommentId, withFooter(combined));
+            core.info(`Updated quiz comment #${targetCommentId} with result`);
+        }
+        else {
+            await (0, github_1.postComment)(octokit, ctx, withFooter(combined));
+            core.info('No quiz comment found — posted new combined comment');
         }
         const checkId = await (0, github_1.findExistingCheck)(octokit, ctx);
         if (!checkId) {

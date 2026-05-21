@@ -47,6 +47,7 @@ exports.postComment = postComment;
 exports.updateComment = updateComment;
 exports.findQuizComment = findQuizComment;
 exports.findAnyBalrogComment = findAnyBalrogComment;
+exports.findResultComment = findResultComment;
 exports.saveQuizArtifact = saveQuizArtifact;
 exports.loadQuizArtifact = loadQuizArtifact;
 const core = __importStar(require("@actions/core"));
@@ -192,6 +193,9 @@ async function findQuizComment(octokit, ctx, quizId) {
 }
 async function findAnyBalrogComment(octokit, ctx) {
     return findBalrogComment(octokit, ctx, '<!-- balrog-quiz-id:');
+}
+async function findResultComment(octokit, ctx) {
+    return findBalrogComment(octokit, ctx, '<!-- balrog-result -->');
 }
 async function findBalrogComment(octokit, ctx, marker) {
     for await (const page of octokit.paginate.iterator(octokit.rest.issues.listComments, {

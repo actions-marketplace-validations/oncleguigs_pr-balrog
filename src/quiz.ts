@@ -72,7 +72,7 @@ function scoreBar(score: number, width = 10): string {
 
 // Strips leading "A) ", "B. ", "C: " etc. that the AI sometimes includes in option text.
 function cleanOption(text: string): string {
-  return text.replace(/^\s*[A-Ca-c][.):\-]\s+/, '')
+  return text.replace(/^\s*[A-Ca-c][.):–-]\s+/, '')
 }
 
 function attemptsLabel(used: number, max: number, isFr: boolean): string {
@@ -229,7 +229,7 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
   lines.push(`| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`)
   lines.push('')
   lines.push(`${t.howto} Reply with \`!balrog ${exampleAnswers}\` — separate multiple answers with a comma.`)
-  lines.push(`<sub>${t.retry}</sub>`)
+  if (remaining === 0) lines.push(`<sub>${t.retry}</sub>`)
   lines.push('')
   lines.push('---')
   lines.push('')
