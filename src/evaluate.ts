@@ -14,6 +14,55 @@ import {
 } from './github'
 import type { SubmittedAnswers } from './types'
 
+type Octokit = ReturnType<typeof github.getOctokit>
+
+async function isAllowedResponder(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  commenterLogin: string,
+  authorLogin: string,
+  policy: string,
+): Promise<boolean> {
+  if (commenterLogin === authorLogin) return true
+
+  switch (policy) {
+    case 'author':
+      return false
+
+    case 'reviewer': {
+      const { data: requested } = await octokit.rest.pulls.listRequestedReviewers({
+        owner, repo, pull_number: prNumber,
+      })
+      if (requested.users.some((u) => u.login === commenterLogin)) return true
+
+      const { data: reviews } = await octokit.rest.pulls.listReviews({
+        owner, repo, pull_number: prNumber,
+      })
+      return reviews.some((r) => r.user?.login === commenterLogin)
+    }
+
+    case 'collaborator': {
+      try {
+        const { data: perm } = await octokit.rest.repos.getCollaboratorPermissionLevel({
+          owner, repo, username: commenterLogin,
+        })
+        return ['write', 'maintain', 'admin'].includes(perm.permission)
+      } catch {
+        return false
+      }
+    }
+
+    case 'any':
+      return true
+
+    default:
+      core.warning(`Unknown quiz-responder policy '${policy}', defaulting to 'author'`)
+      return false
+  }
+}
+
 const RETRY_REGEX = /^!balrog\s+retry\s*$/im
 const RETRY_FORCE_REGEX = /^!balrog\s+retry\s+--force\s*$/im
 
@@ -35,6 +84,7 @@ const FORCE_RETRY_TRIGGERED_EN = (admin: string, author: string) =>
 async function run(): Promise<void> {
   const token = core.getInput('github-token', { required: true })
   const language = core.getInput('language') || 'auto'
+  const quizResponder = core.getInput('quiz-responder') || 'author'
 
   const octokit = github.getOctokit(token)
   const { payload, repo } = github.context
@@ -110,8 +160,12 @@ async function run(): Promise<void> {
     return
   }
 
-  if (commenterLogin !== ctx.authorLogin) {
-    core.info(`Comment from @${commenterLogin}, not the PR author @${ctx.authorLogin}, skipping`)
+  const allowed = await isAllowedResponder(
+    octokit, repo.owner, repo.repo, prNumber,
+    commenterLogin, ctx.authorLogin, quizResponder,
+  )
+  if (!allowed) {
+    core.info(`@${commenterLogin} is not allowed to respond (policy: ${quizResponder}), skipping`)
     return
   }
 

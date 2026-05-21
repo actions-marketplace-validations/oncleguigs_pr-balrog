@@ -1,5 +1,31 @@
 # PR Balrog 🔥
 
+```
+                                       🔥🔥🔥🔥🔥
+                                     🔥🔥🔥🔥🔥🔥🔥
+                          &&&&&  && 🔥🔥🔥🔥🔥🔥 &&  &&&&&
+                  &&&&&&&&&&&&&&&&&&&(🔥🔥🔥🔥&&&&&&&&&&&&&&&&&&&&
+                  &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+               &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+               #&&&&&&&&&&&&&&  🔥&&&&&&&&&&&&&&🔥( /&&&&&&&&&&&&&&.
+               &&&&&&&&&&&&&&&& 🔥🔥 &&&&&&&&& 🔥🔥 &&&&&&&&&&&&&&&&
+               &&&&&&&&&     &&&&&  %&&& &&&   &&&&&     &&&&&&&&&
+               %&&&&&&&&    && /&&&&&&*   @&&&&&&* @&   #&&&&&&&&*
+                   &&&&&&&  ,&&&& /&&& *& 🔥&&&  &&&&   &&&&&&&
+                     #&&&&&  ,&&&& &&&&&&&&&&%(&&&&   &&&&&,
+                       &&&&&    &&&  &(&%& &% &&&    &&&&&
+                        @&&&&  /&&&# / 🔥🔥   @&&&   &&&&#
+                        @&&&&  /&&&# / 🔥🔥   @&&&   &&&&#
+                        @&&&&  /&&&# 🔥🔥🔥🔥 @&&&   &&&&#
+                        @&&&&  /&&&# / 🔥🔥🔥 @&&&   &&&&#
+                        @&&&&  /&&&# / 🔥🔥🔥 @&&&   &&&&#
+                         &&&&    &&&&&& & &&&&&&    &&&&
+                        @&&&&    &&&&&&&&&&&&&&&    &&&&#
+                      &&&&&&         &&&&&&&         &&&&&#
+                                       &&(
+```
+
+
 > *You shall not merge.*
 
 PR Balrog forces developers to prove they understand their own pull request before they can merge. An AI generates a quiz based on the actual diff — testing the **why** and the trade-offs, not just the what.
@@ -104,6 +130,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           language: 'auto'
+          # quiz-responder: 'author'   # author | reviewer | collaborator | any
 ```
 
 The built `dist/` is committed — no build step needed.
@@ -227,8 +254,8 @@ The author clicks their answers, then clicks **✅ Submit my answers**. Balrog d
 
 | Command | Who | Description |
 |---|---|---|
-| `!balrog 1:A 2:B,C 3:A` | PR author | Submit answers |
-| `!balrog retry` | PR author | Request a fresh quiz (only when attempts are exhausted) |
+| `!balrog 1:A 2:B,C 3:A` | Allowed responder (see `quiz-responder`) | Submit answers |
+| `!balrog retry` | Allowed responder (see `quiz-responder`) | Request a fresh quiz (only when attempts are exhausted) |
 | `!balrog retry --force` | Repo admins | Force-reset the quiz regardless of remaining attempts |
 
 ---
@@ -249,6 +276,7 @@ The author clicks their answers, then clicks **✅ Submit my answers**. Balrog d
 | `language` | `auto` | `auto` \| `en` \| `fr` \| `es` \| ... |
 | `additional-prompt` | — | Extra instructions appended to the AI prompt |
 | `answer-mode` | `command` | `command` (type `!balrog 1:A 2:B`) \| `checkbox` (click task-list checkboxes in the quiz comment) |
+| `quiz-responder` | `author` | Who can answer the quiz: `author` \| `reviewer` \| `collaborator` \| `any` |
 
 ### Quiz size (auto mode)
 
