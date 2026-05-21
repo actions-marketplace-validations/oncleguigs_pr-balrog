@@ -20,6 +20,15 @@ export const AttemptRecordSchema = z.object({
   score: z.number().min(0).max(100),
 })
 
+export const QuizHistoryEntrySchema = z.object({
+  id: z.string(),
+  generatedAt: z.string().datetime(),
+  questions: z.array(QuestionSchema),
+  passThreshold: z.number().min(0).max(100),
+  attempts: z.array(AttemptRecordSchema),
+  passed: z.boolean(),
+})
+
 export const QuizSchema = z.object({
   id: z.string(),
   prNumber: z.number().int(),
@@ -32,12 +41,14 @@ export const QuizSchema = z.object({
   passed: z.boolean().default(false),
   answerMode: z.enum(['command', 'checkbox']).default('command'),
   attempts: z.array(AttemptRecordSchema).optional(),
+  previousQuizzes: z.array(QuizHistoryEntrySchema).optional(),
 })
 
 export type Question = z.infer<typeof QuestionSchema>
 export type Quiz = z.infer<typeof QuizSchema>
 export type SubmittedAnswers = z.infer<typeof SubmittedAnswersSchema>
 export type AttemptRecord = z.infer<typeof AttemptRecordSchema>
+export type QuizHistoryEntry = z.infer<typeof QuizHistoryEntrySchema>
 
 export type QuizSize = 3 | 5 | 10
 

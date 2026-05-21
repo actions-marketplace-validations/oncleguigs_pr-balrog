@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import type { Quiz, Question, QuizSize, QuizResult, QuestionResult, SubmittedAnswers, AnswerMode } from './types'
+import type { Quiz, Question, QuizSize, QuizResult, QuestionResult, SubmittedAnswers, AnswerMode, QuizHistoryEntry } from './types'
 
 export function pickQuizSize(changedLines: number, override?: string): QuizSize {
   if (override === '3') return 3
@@ -21,6 +21,7 @@ export function buildQuiz(
   passThreshold: number,
   maxAttempts: number,
   answerMode: AnswerMode = 'command',
+  previousQuizzes?: QuizHistoryEntry[],
 ): Quiz {
   return {
     id: generateQuizId(),
@@ -33,6 +34,7 @@ export function buildQuiz(
     attemptsUsed: 0,
     passed: false,
     answerMode,
+    ...(previousQuizzes && previousQuizzes.length > 0 ? { previousQuizzes } : {}),
   }
 }
 
@@ -79,18 +81,101 @@ function attemptsLabel(used: number, max: number, isFr: boolean): string {
 // ---------------------------------------------------------------------------
 
 export function renderAttemptsHistory(quiz: Quiz, language = 'en'): string {
-  const attempts = quiz.attempts ?? []
-  if (attempts.length === 0) return ''
   const isFr = language.startsWith('fr')
-  const title = isFr ? `📜 Tentatives passées (${attempts.length})` : `📜 Past attempts (${attempts.length})`
-  const rows = attempts.map((a) => {
-    const ansStr = Object.entries(a.answers)
-      .sort(([x], [y]) => Number(x) - Number(y))
-      .map(([q, ans]) => `Q${q}: ${ans.join(',')}`)
-      .join(' · ')
-    return `- Attempt ${a.n}: ${ansStr} — **${a.score}%**`
-  }).join('\n')
-  return `<details>\n<summary>${title}</summary>\n\n${rows}\n\n</details>\n\n`
+  const prevQuizzes = quiz.previousQuizzes ?? []
+  const currentAttempts = quiz.attempts ?? []
+
+  if (prevQuizzes.length === 0 && currentAttempts.length === 0) return ''
+
+  const totalAttempts = prevQuizzes.reduce((sum, q) => sum + q.attempts.length, 0) + currentAttempts.length
+
+  const outerSummary = prevQuizzes.length > 0
+    ? (isFr
+        ? `📜 Historique — ${totalAttempts} tentative${totalAttempts > 1 ? 's' : ''} sur ${prevQuizzes.length + 1} quiz`
+        : `📜 History — ${totalAttempts} attempt${totalAttempts !== 1 ? 's' : ''} across ${prevQuizzes.length + 1} quizzes`)
+    : (isFr
+        ? `📜 Tentatives passées (${currentAttempts.length})`
+        : `📜 Past attempts (${currentAttempts.length})`)
+
+  const lines: string[] = []
+  lines.push('<details>')
+  lines.push(`<summary>${outerSummary}</summary>`)
+  lines.push('')
+
+  // Current quiz attempts (questions are visible below in the quiz section)
+  if (currentAttempts.length > 0) {
+    const currentHeader = isFr
+      ? `**Quiz actuel — ${currentAttempts.length} tentative${currentAttempts.length > 1 ? 's' : ''}**`
+      : `**Current quiz — ${currentAttempts.length} attempt${currentAttempts.length !== 1 ? 's' : ''}**`
+    lines.push(currentHeader)
+    lines.push('')
+    for (const a of currentAttempts) {
+      const ansStr = Object.entries(a.answers)
+        .sort(([x], [y]) => Number(x) - Number(y))
+        .map(([q, ans]) => `Q${q}: ${(ans as string[]).join(',')}`)
+        .join(' · ')
+      const icon = a.score >= quiz.passThreshold ? ' ✅' : ''
+      lines.push(`- Attempt ${a.n}: ${ansStr} — **${a.score}%**${icon}`)
+    }
+    lines.push('')
+    if (prevQuizzes.length > 0) {
+      lines.push('---')
+      lines.push('')
+    }
+  }
+
+  // Previous quizzes — each as a nested <details> with questions + attempts
+  const optionLetters: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C']
+  for (let i = 0; i < prevQuizzes.length; i++) {
+    const pq = prevQuizzes[i]
+    const quizNum = i + 1
+    const date = pq.generatedAt.slice(0, 10)
+    const passIcon = pq.passed ? '✅' : '❌'
+    const attCount = pq.attempts.length
+    const innerSummary = isFr
+      ? `Quiz ${quizNum} — ${date} — ${passIcon} — ${attCount} tentative${attCount !== 1 ? 's' : ''}`
+      : `Quiz ${quizNum} — ${date} — ${passIcon} — ${attCount} attempt${attCount !== 1 ? 's' : ''}`
+
+    lines.push('<details>')
+    lines.push(`<summary>${innerSummary}</summary>`)
+    lines.push('')
+
+    for (const q of pq.questions) {
+      const multiTag = q.multi ? ` *(${isFr ? 'plusieurs réponses' : 'multiple answers'})* ` : ''
+      lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
+      lines.push('')
+      for (let j = 0; j < q.options.length; j++) {
+        const letter = optionLetters[j]
+        const mark = (q.correct as string[]).includes(letter) ? '✅' : '⬜'
+        lines.push(`- ${mark} **${letter})** ${q.options[j]}`)
+      }
+      lines.push(`> 💡 ${q.explanation}`)
+      lines.push('')
+    }
+
+    if (pq.attempts.length > 0) {
+      lines.push(isFr ? '**Tentatives :**' : '**Attempts:**')
+      lines.push('')
+      for (const a of pq.attempts) {
+        const ansStr = Object.entries(a.answers)
+          .sort(([x], [y]) => Number(x) - Number(y))
+          .map(([q, ans]) => `Q${q}: ${(ans as string[]).join(',')}`)
+          .join(' · ')
+        const icon = a.score >= pq.passThreshold ? ' ✅' : ''
+        lines.push(`- Attempt ${a.n}: ${ansStr} — **${a.score}%**${icon}`)
+      }
+      lines.push('')
+    }
+
+    lines.push('</details>')
+    if (i < prevQuizzes.length - 1) lines.push('')
+  }
+
+  lines.push('')
+  lines.push('</details>')
+  lines.push('')
+
+  return lines.join('\n')
 }
 
 export function renderFightingBanner(language = 'en'): string {

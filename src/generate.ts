@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import type { AIProvider, AnswerMode, QuizSize } from './types'
-import { pickQuizSize, buildQuiz, renderQuizComment, renderQuizCommentCheckbox, renderPreviousQuizSummary } from './quiz'
+import type { AIProvider, AnswerMode, QuizSize, QuizHistoryEntry } from './types'
+import { pickQuizSize, buildQuiz, renderQuizComment, renderQuizCommentCheckbox } from './quiz'
 import {
   fetchFilteredDiff,
   createPendingCheck,
@@ -108,17 +108,28 @@ async function run(): Promise<void> {
   // Load old quiz BEFORE saving the new one (both share the same artifact name)
   const oldQuiz = await loadQuizArtifact(ctx.prNumber, octokit, ctx.owner, ctx.repo, token)
 
+  // Carry history forward so previous quiz questions + attempts are preserved
+  const previousQuizzes: QuizHistoryEntry[] = oldQuiz ? [
+    ...(oldQuiz.previousQuizzes ?? []),
+    {
+      id: oldQuiz.id,
+      generatedAt: oldQuiz.generatedAt,
+      questions: oldQuiz.questions,
+      passThreshold: oldQuiz.passThreshold,
+      attempts: oldQuiz.attempts ?? [],
+      passed: oldQuiz.passed,
+    },
+  ] : []
+
   // Persist quiz + correct answers as artifact (author can't see this)
-  const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode)
+  const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode, previousQuizzes)
   await saveQuizArtifact(quiz)
 
   // Post or update quiz comment (without correct answers)
   const lang = language === 'auto' ? 'en' : language
-  const previousSummary = oldQuiz ? renderPreviousQuizSummary(oldQuiz, lang) : ''
-  const quizBody = answerMode === 'checkbox'
+  const commentBody = answerMode === 'checkbox'
     ? renderQuizCommentCheckbox(quiz, lang)
     : renderQuizComment(quiz, lang)
-  const commentBody = previousSummary + quizBody
 
   const existingCommentId = await findAnyBalrogComment(octokit, ctx)
   let commentId: number

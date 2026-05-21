@@ -16,7 +16,7 @@ import {
   renderRegeneratingComment,
   renderPreviousQuizSummary,
 } from '../quiz'
-import type { Question, AttemptRecord } from '../types'
+import type { Question, AttemptRecord, QuizHistoryEntry } from '../types'
 
 const SAMPLE_QUESTIONS: Question[] = [
   {
@@ -356,12 +356,12 @@ describe('renderLockedQuizComment', () => {
 describe('renderAttemptsHistory', () => {
   const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
 
-  it('returns empty string when no attempts', () => {
+  it('returns empty string when no attempts and no previous quizzes', () => {
     expect(renderAttemptsHistory(quiz)).toBe('')
     expect(renderAttemptsHistory({ ...quiz, attempts: [] })).toBe('')
   })
 
-  it('renders collapsible block with attempt count', () => {
+  it('renders collapsible block for current attempts', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'], '2': ['C'] }, score: 33 }]
     const out = renderAttemptsHistory({ ...quiz, attempts })
     expect(out).toContain('<details>')
@@ -372,7 +372,7 @@ describe('renderAttemptsHistory', () => {
     expect(out).toContain('Q2: C')
   })
 
-  it('renders multiple attempts sorted by question number', () => {
+  it('renders multiple current attempts sorted by question number', () => {
     const attempts: AttemptRecord[] = [
       { n: 1, answers: { '3': ['B'], '1': ['A'] }, score: 33 },
       { n: 2, answers: { '1': ['B'], '2': ['A', 'B'], '3': ['B'] }, score: 67 },
@@ -381,15 +381,68 @@ describe('renderAttemptsHistory', () => {
     expect(out).toContain('Past attempts (2)')
     expect(out).toContain('Attempt 2:')
     expect(out).toContain('67%')
-    // Q1 sorted before Q3 in first attempt
     const attempt1Line = out.split('\n').find((l) => l.includes('Attempt 1:'))!
     expect(attempt1Line.indexOf('Q1')).toBeLessThan(attempt1Line.indexOf('Q3'))
   })
 
-  it('renders in French', () => {
+  it('renders in French (current attempts only)', () => {
     const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
     const out = renderAttemptsHistory({ ...quiz, attempts }, 'fr')
     expect(out).toContain('Tentatives passées (1)')
+  })
+
+  it('renders previous quizzes as nested <details> with questions + attempts', () => {
+    const prevEntry: QuizHistoryEntry = {
+      id: 'prev-id',
+      generatedAt: '2025-05-20T10:00:00.000Z',
+      questions: SAMPLE_QUESTIONS,
+      passThreshold: 80,
+      attempts: [{ n: 1, answers: { '1': ['A'] }, score: 33 }],
+      passed: false,
+    }
+    const out = renderAttemptsHistory({ ...quiz, previousQuizzes: [prevEntry] })
+    // Outer summary mentions history across quizzes
+    expect(out).toContain('History')
+    expect(out).toContain('across 2 quizzes')
+    // Previous quiz entry as nested details
+    expect(out).toContain('Quiz 1 — 2025-05-20 — ❌')
+    // Questions with correct answers revealed
+    expect(out).toContain('✅ **B)**') // Q1 correct answer
+    expect(out).toContain('⬜ **A)**')
+    expect(out).toContain('💡')
+    // Attempts inside
+    expect(out).toContain('Attempts:')
+    expect(out).toContain('Attempt 1:')
+    expect(out).toContain('Q1: A')
+  })
+
+  it('shows "current quiz" header when there are both current and previous attempts', () => {
+    const prevEntry: QuizHistoryEntry = {
+      id: 'prev-id',
+      generatedAt: '2025-05-20T10:00:00.000Z',
+      questions: SAMPLE_QUESTIONS,
+      passThreshold: 80,
+      attempts: [],
+      passed: false,
+    }
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['B'] }, score: 33 }]
+    const out = renderAttemptsHistory({ ...quiz, attempts, previousQuizzes: [prevEntry] })
+    expect(out).toContain('Current quiz')
+    expect(out).toContain('Quiz 1')
+  })
+
+  it('renders previous quiz in French', () => {
+    const prevEntry: QuizHistoryEntry = {
+      id: 'prev-id',
+      generatedAt: '2025-05-20T10:00:00.000Z',
+      questions: SAMPLE_QUESTIONS,
+      passThreshold: 80,
+      attempts: [{ n: 1, answers: { '1': ['A'] }, score: 33 }],
+      passed: false,
+    }
+    const out = renderAttemptsHistory({ ...quiz, previousQuizzes: [prevEntry] }, 'fr')
+    expect(out).toContain('Historique')
+    expect(out).toContain('Tentatives :')
   })
 
   it('renders history before quiz ID marker in quiz comment', () => {
