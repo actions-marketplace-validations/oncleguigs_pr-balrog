@@ -81,6 +81,7 @@ permissions:
   pull-requests: write
   contents: read
   models: read
+  actions: read
 
 jobs:
   generate-quiz:
