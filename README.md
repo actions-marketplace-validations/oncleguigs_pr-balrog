@@ -110,7 +110,7 @@ name: PR Balrog — Evaluate Answers
 
 on:
   issue_comment:
-    types: [created, edited]  # 'edited' is required for checkbox mode
+    types: [created, edited]
 
 permissions:
   checks: write
@@ -122,15 +122,16 @@ jobs:
   evaluate-quiz:
     name: Evaluate Quiz Answers
     runs-on: ubuntu-latest
-    if: startsWith(github.event.comment.body, '!balrog')
+    if: >
+      (github.event.action == 'created' && startsWith(github.event.comment.body, '!balrog')) ||
+      github.event.action == 'edited'
 
     steps:
       - name: Evaluate answers
-        uses: oncleguigs/pr-balrog/evaluate@main
+        uses: basilelt/pr-balrog/evaluate@feat/checkbox-answer-mode
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           language: 'auto'
-          # quiz-responder: 'author'   # author | reviewer | collaborator | any
 ```
 
 The built `dist/` is committed — no build step needed.

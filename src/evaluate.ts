@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import { parseAnswerComment, parseCheckboxAnswers, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox } from './quiz'
+import { parseAnswerComment, parseCheckboxAnswers, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox, renderQuizComment, renderFightingBanner } from './quiz'
 import {
   loadQuizArtifact,
   saveQuizArtifact,
@@ -258,11 +258,40 @@ async function run(): Promise<void> {
       return
     }
 
+    const lang = language === 'auto' ? detectLanguage(quiz) : language
+
+    // Show fighting banner on quiz comment while evaluation runs
+    const fightingCommentId = isCheckbox
+      ? (quizCommentId ?? await findQuizComment(octokit, ctx, quiz.id))
+      : await findQuizComment(octokit, ctx, quiz.id)
+    if (fightingCommentId) {
+      try {
+        const banner = renderFightingBanner(lang)
+        let bannerBody: string
+        if (isCheckbox) {
+          // Change mode marker to prevent a re-trigger from this edit.
+          // GITHUB_TOKEN edits don't fire workflow events by default, but this
+          // guards against PAT-based setups where they would.
+          bannerBody = banner + renderQuizCommentCheckbox(quiz, lang, submittedAnswers)
+            .replace('<!-- balrog-mode: checkbox -->', '<!-- balrog-mode: checkbox-evaluating -->')
+        } else {
+          bannerBody = banner + renderQuizComment(quiz, lang)
+        }
+        await updateComment(octokit, ctx, fightingCommentId, bannerBody)
+      } catch (e) {
+        core.info(`Could not update quiz comment with fighting banner: ${e}`)
+      }
+    }
+
     const result = evaluateQuiz(quiz, submittedAnswers)
-    const updatedQuiz = { ...quiz, attemptsUsed: quiz.attemptsUsed + 1, passed: result.passed }
+    const updatedQuiz = {
+      ...quiz,
+      attemptsUsed: quiz.attemptsUsed + 1,
+      passed: result.passed,
+      attempts: [...(quiz.attempts ?? []), { n: quiz.attemptsUsed + 1, answers: submittedAnswers, score: result.score }],
+    }
     await saveQuizArtifact(updatedQuiz)
 
-    const lang = language === 'auto' ? detectLanguage(quiz) : language
     const resultBody = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
     const existingResultId = await findAnyBalrogComment(octokit, ctx)
     if (existingResultId) {

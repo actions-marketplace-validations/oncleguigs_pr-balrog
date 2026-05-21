@@ -25,7 +25,7 @@ class AnthropicAdapter {
             messages: [
                 {
                     role: 'user',
-                    content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language),
+                    content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language, opts.additionalPrompt),
                 },
             ],
         });

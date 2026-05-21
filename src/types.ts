@@ -9,6 +9,17 @@ export const QuestionSchema = z.object({
   multi: z.boolean(), // true when more than one correct answer
 })
 
+export const SubmittedAnswersSchema = z.record(
+  z.string(), // "1", "2", ...
+  z.array(z.enum(['A', 'B', 'C'])),
+)
+
+export const AttemptRecordSchema = z.object({
+  n: z.number().int().min(1),
+  answers: SubmittedAnswersSchema,
+  score: z.number().min(0).max(100),
+})
+
 export const QuizSchema = z.object({
   id: z.string(),
   prNumber: z.number().int(),
@@ -20,16 +31,13 @@ export const QuizSchema = z.object({
   attemptsUsed: z.number().int().min(0).default(0),
   passed: z.boolean().default(false),
   answerMode: z.enum(['command', 'checkbox']).default('command'),
+  attempts: z.array(AttemptRecordSchema).optional(),
 })
-
-export const SubmittedAnswersSchema = z.record(
-  z.string(), // "1", "2", ...
-  z.array(z.enum(['A', 'B', 'C'])),
-)
 
 export type Question = z.infer<typeof QuestionSchema>
 export type Quiz = z.infer<typeof QuizSchema>
 export type SubmittedAnswers = z.infer<typeof SubmittedAnswersSchema>
+export type AttemptRecord = z.infer<typeof AttemptRecordSchema>
 
 export type QuizSize = 3 | 5 | 10
 

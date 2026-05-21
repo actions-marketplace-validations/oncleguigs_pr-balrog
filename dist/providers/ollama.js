@@ -17,7 +17,7 @@ class OllamaAdapter {
                 model: this.model,
                 messages: [
                     { role: 'system', content: (0, prompt_1.buildSystemPrompt)() },
-                    { role: 'user', content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language) },
+                    { role: 'user', content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language, opts.additionalPrompt) },
                 ],
                 format: 'json',
                 stream: false,

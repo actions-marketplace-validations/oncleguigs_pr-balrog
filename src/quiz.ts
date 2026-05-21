@@ -75,6 +75,32 @@ function attemptsLabel(used: number, max: number, isFr: boolean): string {
 }
 
 // ---------------------------------------------------------------------------
+// Attempt history + fighting banner
+// ---------------------------------------------------------------------------
+
+export function renderAttemptsHistory(quiz: Quiz, language = 'en'): string {
+  const attempts = quiz.attempts ?? []
+  if (attempts.length === 0) return ''
+  const isFr = language.startsWith('fr')
+  const title = isFr ? `📜 Tentatives passées (${attempts.length})` : `📜 Past attempts (${attempts.length})`
+  const rows = attempts.map((a) => {
+    const ansStr = Object.entries(a.answers)
+      .sort(([x], [y]) => Number(x) - Number(y))
+      .map(([q, ans]) => `Q${q}: ${ans.join(',')}`)
+      .join(' · ')
+    return `- Attempt ${a.n}: ${ansStr} — **${a.score}%**`
+  }).join('\n')
+  return `<details>\n<summary>${title}</summary>\n\n${rows}\n\n</details>\n\n`
+}
+
+export function renderFightingBanner(language = 'en'): string {
+  const isFr = language.startsWith('fr')
+  return isFr
+    ? '> ⚔️ **Balrog se bat contre toi...** tes réponses sont en cours d\'évaluation, tiens bon.\n\n'
+    : '> ⚔️ **Balrog is fighting you...** evaluating your answers, hold the line.\n\n'
+}
+
+// ---------------------------------------------------------------------------
 // Quiz comment
 // ---------------------------------------------------------------------------
 
@@ -95,8 +121,11 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
   }
 
   const exampleAnswers = quiz.questions.map((_, i) => `${i + 1}:A`).join(' ')
+  const history = renderAttemptsHistory(quiz, language)
 
-  const lines: string[] = [
+  const lines: string[] = []
+  if (history) lines.push(history)
+  lines.push(
     `## ${t.title}`,
     '',
     t.subtitle,
@@ -110,7 +139,7 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
     '',
     '---',
     '',
-  ]
+  )
 
   for (const q of quiz.questions) {
     const multiTag = q.multi ? ` *(${isFr ? 'plusieurs réponses' : 'multiple answers'})* ` : ''
@@ -215,7 +244,10 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
     retry:    isFr ? 'Plus de tentatives ? Tapez `!balrog retry`.' : 'Out of attempts? Type `!balrog retry`.',
   }
 
-  const lines: string[] = [
+  const history = renderAttemptsHistory(quiz, language)
+  const lines: string[] = []
+  if (history) lines.push(history)
+  lines.push(
     `## ${t.title}`,
     '',
     t.subtitle,
@@ -229,7 +261,7 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
     '',
     '---',
     '',
-  ]
+  )
 
   for (const q of quiz.questions) {
     const qKey = String(q.id)
@@ -299,7 +331,10 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
     multi:    isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
   }
 
-  const lines: string[] = [
+  const history = renderAttemptsHistory(quiz, language)
+  const lines: string[] = []
+  if (history) lines.push(history)
+  lines.push(
     `## ${t.title}`,
     '',
     banner,
@@ -310,7 +345,7 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
     '',
     '---',
     '',
-  ]
+  )
 
   for (const q of quiz.questions) {
     const multiTag = q.multi ? ` ${t.multi} ` : ''

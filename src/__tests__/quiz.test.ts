@@ -8,8 +8,10 @@ import {
   renderQuizCommentCheckbox,
   renderLockedQuizComment,
   renderResultComment,
+  renderAttemptsHistory,
+  renderFightingBanner,
 } from '../quiz'
-import type { Question } from '../types'
+import type { Question, AttemptRecord } from '../types'
 
 const SAMPLE_QUESTIONS: Question[] = [
   {
@@ -315,6 +317,74 @@ describe('renderLockedQuizComment', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderLockedQuizComment(quiz)
     expect(comment).toContain('<!-- balrog-mode: checkbox-locked -->')
+  })
+})
+
+describe('renderAttemptsHistory', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('returns empty string when no attempts', () => {
+    expect(renderAttemptsHistory(quiz)).toBe('')
+    expect(renderAttemptsHistory({ ...quiz, attempts: [] })).toBe('')
+  })
+
+  it('renders collapsible block with attempt count', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'], '2': ['C'] }, score: 33 }]
+    const out = renderAttemptsHistory({ ...quiz, attempts })
+    expect(out).toContain('<details>')
+    expect(out).toContain('Past attempts (1)')
+    expect(out).toContain('Attempt 1:')
+    expect(out).toContain('33%')
+    expect(out).toContain('Q1: A')
+    expect(out).toContain('Q2: C')
+  })
+
+  it('renders multiple attempts sorted by question number', () => {
+    const attempts: AttemptRecord[] = [
+      { n: 1, answers: { '3': ['B'], '1': ['A'] }, score: 33 },
+      { n: 2, answers: { '1': ['B'], '2': ['A', 'B'], '3': ['B'] }, score: 67 },
+    ]
+    const out = renderAttemptsHistory({ ...quiz, attempts })
+    expect(out).toContain('Past attempts (2)')
+    expect(out).toContain('Attempt 2:')
+    expect(out).toContain('67%')
+    // Q1 sorted before Q3 in first attempt
+    const attempt1Line = out.split('\n').find((l) => l.includes('Attempt 1:'))!
+    expect(attempt1Line.indexOf('Q1')).toBeLessThan(attempt1Line.indexOf('Q3'))
+  })
+
+  it('renders in French', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const out = renderAttemptsHistory({ ...quiz, attempts }, 'fr')
+    expect(out).toContain('Tentatives passées (1)')
+  })
+
+  it('injects history at top of quiz comment', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const comment = renderQuizComment({ ...quiz, attempts })
+    expect(comment.indexOf('<details>')).toBeLessThan(comment.indexOf('## 🔥'))
+  })
+
+  it('injects history at top of checkbox comment', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const comment = renderQuizCommentCheckbox({ ...quiz, attempts })
+    expect(comment.indexOf('<details>')).toBeLessThan(comment.indexOf('## 🔥'))
+  })
+
+  it('injects history at top of locked comment', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const comment = renderLockedQuizComment({ ...quiz, attempts })
+    expect(comment.indexOf('<details>')).toBeLessThan(comment.indexOf('## 🔥'))
+  })
+})
+
+describe('renderFightingBanner', () => {
+  it('contains fighting text in English', () => {
+    expect(renderFightingBanner()).toContain('Balrog is fighting you')
+  })
+
+  it('contains fighting text in French', () => {
+    expect(renderFightingBanner('fr')).toContain('Balrog se bat contre toi')
   })
 })
 

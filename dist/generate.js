@@ -49,6 +49,8 @@ async function run() {
     const minLines = parseInt(core.getInput('min-lines-threshold') || '10', 10);
     const excludeRaw = core.getInput('exclude-patterns') || '*.lock,*.min.js,*-lock.json,*.snap';
     const language = core.getInput('language') || 'auto';
+    const additionalPrompt = core.getInput('additional-prompt') || undefined;
+    const answerMode = (core.getInput('answer-mode') || 'command');
     const excludePatterns = excludeRaw
         .split(',')
         .map((p) => p.trim())
@@ -115,14 +117,26 @@ async function run() {
     core.info(`Generating ${numQuestions}-question quiz via ${provider}`);
     // Generate quiz
     const adapter = (0, providers_1.createProvider)(provider, apiKey, model);
-    const questions = await adapter.generateQuiz({ diff, numQuestions, language });
+    const questions = await adapter.generateQuiz({ diff, numQuestions, language, additionalPrompt });
     // Persist quiz + correct answers as artifact (author can't see this)
-    const quiz = (0, quiz_1.buildQuiz)(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts);
+    const quiz = (0, quiz_1.buildQuiz)(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode);
     await (0, github_1.saveQuizArtifact)(quiz);
-    // Post quiz comment (without correct answers)
-    const commentBody = (0, quiz_1.renderQuizComment)(quiz, language === 'auto' ? 'en' : language);
-    const commentId = await (0, github_1.postComment)(octokit, ctx, commentBody);
-    core.info(`Posted quiz comment #${commentId}`);
+    // Post or update quiz comment (without correct answers)
+    const lang = language === 'auto' ? 'en' : language;
+    const commentBody = answerMode === 'checkbox'
+        ? (0, quiz_1.renderQuizCommentCheckbox)(quiz, lang)
+        : (0, quiz_1.renderQuizComment)(quiz, lang);
+    const existingCommentId = await (0, github_1.findAnyBalrogComment)(octokit, ctx);
+    let commentId;
+    if (existingCommentId) {
+        await (0, github_1.updateComment)(octokit, ctx, existingCommentId, commentBody);
+        commentId = existingCommentId;
+        core.info(`Updated existing quiz comment #${commentId} (mode: ${answerMode})`);
+    }
+    else {
+        commentId = await (0, github_1.postComment)(octokit, ctx, commentBody);
+        core.info(`Posted new quiz comment #${commentId} (mode: ${answerMode})`);
+    }
     // Create pending check — this is what blocks the merge
     const checkId = await (0, github_1.createPendingCheck)(octokit, ctx);
     core.info(`Created pending check #${checkId}`);

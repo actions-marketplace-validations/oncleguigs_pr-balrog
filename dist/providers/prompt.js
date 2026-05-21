@@ -6,7 +6,7 @@ function buildSystemPrompt() {
     return `You are a code review assistant generating a comprehension quiz for a developer about their own pull request.
 Your goal is to verify the developer genuinely understands the changes they made — the WHY, the trade-offs, and the risks — not just the surface-level WHAT.`;
 }
-function buildUserPrompt(diff, numQuestions, language) {
+function buildUserPrompt(diff, numQuestions, language, additionalPrompt) {
     const langNote = language === 'auto'
         ? 'Detect the language from the PR diff context (comments, identifiers). Default to English.'
         : `Write all questions and options in: ${language}`;
@@ -27,7 +27,7 @@ Rules:
 - Explanations should be 1-2 sentences max
 - ${langNote}
 
-Respond with ONLY valid JSON matching this schema exactly:
+${additionalPrompt ? `Additional instructions:\n${additionalPrompt}\n\n` : ''}Respond with ONLY valid JSON matching this schema exactly:
 {
   "questions": [
     {
