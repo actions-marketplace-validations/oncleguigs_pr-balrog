@@ -129,7 +129,7 @@ jobs:
 
     steps:
       - name: Evaluate answers
-        uses: basilelt/pr-balrog/evaluate@feat/checkbox-answer-mode
+        uses: oncleguigs/pr-balrog/evaluate@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           language: 'auto'
