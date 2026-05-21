@@ -537,9 +537,9 @@ describe('renderUpdatedAt', () => {
 describe('retry checkbox in rendered comments', () => {
   const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
 
-  it('active checkbox comment contains retry checkbox', () => {
+  it('active checkbox comment does NOT contain retry checkbox', () => {
     const body = renderQuizCommentCheckbox(quiz)
-    expect(body).toContain('- [ ] 🔄 Request a new quiz')
+    expect(body).not.toContain('🔄 Request a new quiz')
   })
 
   it('locked comment does NOT contain retry checkbox (appended by caller)', () => {

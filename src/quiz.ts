@@ -70,6 +70,11 @@ function scoreBar(score: number, width = 10): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
+// Strips leading "A) ", "B) ", "C) ", "a. " etc. that the AI sometimes includes in option text.
+function cleanOption(text: string): string {
+  return text.replace(/^\s*[A-Ca-c][.)]\s+/, '')
+}
+
 function attemptsLabel(used: number, max: number, isFr: boolean): string {
   if (max === 0) return isFr ? 'tentatives illimitées' : 'unlimited attempts'
   const left = max - used
@@ -147,7 +152,7 @@ export function renderAttemptsHistory(quiz: Quiz, language = 'en'): string {
       for (let j = 0; j < q.options.length; j++) {
         const letter = optionLetters[j]
         const mark = (q.correct as string[]).includes(letter) ? '✅' : '⬜'
-        lines.push(`- ${mark} **${letter})** ${q.options[j]}`)
+        lines.push(`- ${mark} **${letter})** ${cleanOption(q.options[j])}`)
       }
       lines.push(`> 💡 ${q.explanation}`)
       lines.push('')
@@ -232,9 +237,9 @@ export function renderQuizComment(quiz: Quiz, language = 'en'): string {
     const multiTag = q.multi ? ` *(${isFr ? 'plusieurs réponses' : 'multiple answers'})* ` : ''
     lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
     lines.push('')
-    lines.push(`- **A)** ${q.options[0]}`)
-    lines.push(`- **B)** ${q.options[1]}`)
-    lines.push(`- **C)** ${q.options[2]}`)
+    lines.push(`- **A)** ${cleanOption(q.options[0])}`)
+    lines.push(`- **B)** ${cleanOption(q.options[1])}`)
+    lines.push(`- **C)** ${cleanOption(q.options[2])}`)
     lines.push('')
   }
   lines.push('</details>')
@@ -321,11 +326,9 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
     subtitle: isFr ? '> **You shall not pass** — prouve que tu comprends tes propres changements.' : '> **You shall not pass** — prove you understand your own changes.',
     threshold: isFr ? 'Seuil' : 'Threshold',
     attempts:  isFr ? 'Tentatives restantes' : 'Attempts left',
-    howto:    isFr ? '**Comment répondre :** Coche tes réponses puis coche **✅ Soumettre**.' : '**How to answer:** Check your answers then check **✅ Submit my answers**.',
-    multi:    isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
-    submit:   isFr ? '✅ Soumettre mes réponses' : '✅ Submit my answers',
-    retry:    isFr ? 'Plus de tentatives ? Cochez **🔄 Demander un nouveau quiz** ci-dessous.' : 'Out of attempts? Tick **🔄 Request a new quiz** below.',
-    retry_ck: isFr ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz',
+    howto:  isFr ? '**Comment répondre :** Coche tes réponses puis coche **✅ Soumettre**.' : '**How to answer:** Check your answers then check **✅ Submit my answers**.',
+    multi:  isFr ? '*(plusieurs réponses)*' : '*(multiple answers)*',
+    submit: isFr ? '✅ Soumettre mes réponses' : '✅ Submit my answers',
   }
 
   const history = renderAttemptsHistory(quiz, language)
@@ -348,7 +351,6 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
   lines.push(`| **${quiz.passThreshold}%** | **${maxLabel}** | **${n}** |`)
   lines.push('')
   lines.push(t.howto)
-  lines.push(`<sub>${t.retry}</sub>`)
   lines.push('')
   lines.push('---')
   lines.push('')
@@ -359,16 +361,15 @@ export function renderQuizCommentCheckbox(quiz: Quiz, language = 'en', previousA
     const multiTag = q.multi ? ` ${t.multi} ` : ''
     lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
     lines.push('')
-    lines.push(`- [${prev.includes('A') ? 'x' : ' '}] **A)** ${q.options[0]}`)
-    lines.push(`- [${prev.includes('B') ? 'x' : ' '}] **B)** ${q.options[1]}`)
-    lines.push(`- [${prev.includes('C') ? 'x' : ' '}] **C)** ${q.options[2]}`)
+    lines.push(`- [${prev.includes('A') ? 'x' : ' '}] **A)** ${cleanOption(q.options[0])}`)
+    lines.push(`- [${prev.includes('B') ? 'x' : ' '}] **B)** ${cleanOption(q.options[1])}`)
+    lines.push(`- [${prev.includes('C') ? 'x' : ' '}] **C)** ${cleanOption(q.options[2])}`)
     lines.push('')
   }
 
   lines.push('---')
   lines.push('')
   lines.push(`- [ ] ${t.submit}`)
-  lines.push(`- [ ] ${t.retry_ck}`)
   lines.push('')
   lines.push('</details>')
 
@@ -467,9 +468,9 @@ export function renderLockedQuizComment(quiz: Quiz, language = 'en'): string {
     const multiTag = q.multi ? ` ${t.multi} ` : ''
     lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
     lines.push('')
-    lines.push(`- **A)** ${q.options[0]}`)
-    lines.push(`- **B)** ${q.options[1]}`)
-    lines.push(`- **C)** ${q.options[2]}`)
+    lines.push(`- **A)** ${cleanOption(q.options[0])}`)
+    lines.push(`- **B)** ${cleanOption(q.options[1])}`)
+    lines.push(`- **C)** ${cleanOption(q.options[2])}`)
     lines.push('')
   }
 
@@ -519,9 +520,9 @@ export function renderRegeneratingComment(quiz: Quiz, language = 'en'): string {
     const multiTag = q.multi ? ` ${t.multi} ` : ''
     lines.push(`**Q${q.id}.** ${multiTag}${q.text}`)
     lines.push('')
-    lines.push(`- **A)** ${q.options[0]}`)
-    lines.push(`- **B)** ${q.options[1]}`)
-    lines.push(`- **C)** ${q.options[2]}`)
+    lines.push(`- **A)** ${cleanOption(q.options[0])}`)
+    lines.push(`- **B)** ${cleanOption(q.options[1])}`)
+    lines.push(`- **C)** ${cleanOption(q.options[2])}`)
     lines.push('')
   }
 
@@ -570,7 +571,7 @@ export function renderPreviousQuizSummary(quiz: Quiz, language = 'en'): string {
     for (let i = 0; i < q.options.length; i++) {
       const letter = optionLetters[i]
       const mark = q.correct.includes(letter) ? '✅' : '⬜'
-      lines.push(`- ${mark} **${letter})** ${q.options[i]}`)
+      lines.push(`- ${mark} **${letter})** ${cleanOption(q.options[i])}`)
     }
     lines.push(`> 💡 ${q.explanation}`)
     lines.push('')
