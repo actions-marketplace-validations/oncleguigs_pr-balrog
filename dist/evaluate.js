@@ -37,7 +37,43 @@ const core = __importStar(require("@actions/core"));
 const github = __importStar(require("@actions/github"));
 const quiz_1 = require("./quiz");
 const github_1 = require("./github");
+async function isAllowedResponder(octokit, owner, repo, prNumber, commenterLogin, authorLogin, policy) {
+    if (commenterLogin === authorLogin)
+        return true;
+    switch (policy) {
+        case 'author':
+            return false;
+        case 'reviewer': {
+            const { data: requested } = await octokit.rest.pulls.listRequestedReviewers({
+                owner, repo, pull_number: prNumber,
+            });
+            if (requested.users.some((u) => u.login === commenterLogin))
+                return true;
+            const { data: reviews } = await octokit.rest.pulls.listReviews({
+                owner, repo, pull_number: prNumber,
+            });
+            return reviews.some((r) => r.user?.login === commenterLogin);
+        }
+        case 'collaborator': {
+            try {
+                const { data: perm } = await octokit.rest.repos.getCollaboratorPermissionLevel({
+                    owner, repo, username: commenterLogin,
+                });
+                return ['write', 'maintain', 'admin'].includes(perm.permission);
+            }
+            catch {
+                return false;
+            }
+        }
+        case 'any':
+            return true;
+        default:
+            core.warning(`Unknown quiz-responder policy '${policy}', defaulting to 'author'`);
+            return false;
+    }
+}
 const RETRY_REGEX = /^!balrog\s+retry\s*$/im;
+const RETRY_FORCE_REGEX = /^!balrog\s+retry\s+--force\s*$/im;
 const EXHAUSTED_MESSAGE_EN = (author, max) => `## 🔥 You shall not pass — attempts exhausted
 
 @${author} You have used all **${max}** attempt(s) without passing the quiz.
@@ -46,13 +82,17 @@ const EXHAUSTED_MESSAGE_EN = (author, max) => `## 🔥 You shall not pass — at
 - **Push a new commit** to your branch (even a small fix or a \`git commit --allow-empty\`) — the quiz will regenerate automatically.
 - **Type \`!balrog retry\`** in this PR to request a new quiz immediately without pushing code.`;
 const RETRY_TRIGGERED_EN = (author) => `🔄 @${author} Regenerating your quiz… A new quiz will be posted shortly.`;
+const FORCE_RETRY_TRIGGERED_EN = (admin, author) => `🔄 @${admin} triggered a forced quiz reset for @${author}. A new quiz will be posted shortly.`;
 async function run() {
     const token = core.getInput('github-token', { required: true });
     const language = core.getInput('language') || 'auto';
+    const quizResponder = core.getInput('quiz-responder') || 'author';
     const octokit = github.getOctokit(token);
     const { payload, repo } = github.context;
     const comment = payload.comment;
     const issue = payload.issue;
+    const eventName = github.context.eventName;
+    const eventAction = payload.action;
     if (!comment || !issue) {
         core.info('Not a comment event, skipping');
         return;
@@ -62,9 +102,12 @@ async function run() {
         return;
     }
     const prNumber = issue.number;
-    const commenterLogin = comment.user.login;
+    // For 'edited' events the actor is payload.sender, not comment.user (which is the original poster)
+    const commenterLogin = eventAction === 'edited'
+        ? (payload.sender?.login ?? comment.user.login)
+        : comment.user.login;
     const commentBody = comment.body;
-    core.info(`Comment on PR #${prNumber} by @${commenterLogin}`);
+    core.info(`Comment on PR #${prNumber} by @${commenterLogin} (action: ${eventAction})`);
     // Verify the commenter is the PR author before doing anything
     const prData = await octokit.rest.pulls.get({
         owner: repo.owner,
@@ -78,24 +121,115 @@ async function run() {
         headSha: prData.data.head.sha,
         authorLogin: prData.data.user?.login ?? '',
     };
-    if (commenterLogin !== ctx.authorLogin) {
-        core.info(`Comment from @${commenterLogin}, not the PR author @${ctx.authorLogin}, skipping`);
+    // ---------------------------------------------------------------------------
+    // !balrog retry --force — admin override, bypasses author check and attempt limit
+    // ---------------------------------------------------------------------------
+    if (RETRY_FORCE_REGEX.test(commentBody)) {
+        const permResponse = await octokit.rest.repos.getCollaboratorPermissionLevel({
+            owner: repo.owner,
+            repo: repo.repo,
+            username: commenterLogin,
+        });
+        const permission = permResponse.data.permission;
+        if (permission !== 'admin') {
+            core.info(`@${commenterLogin} tried --force but has permission '${permission}', not admin`);
+            await (0, github_1.postComment)(octokit, ctx, `⛔ @${commenterLogin} \`!balrog retry --force\` is reserved for repository admins.`);
+            return;
+        }
+        core.info(`Admin @${commenterLogin} force-retrying quiz for PR #${prNumber}`);
+        await (0, github_1.postComment)(octokit, ctx, FORCE_RETRY_TRIGGERED_EN(commenterLogin, ctx.authorLogin));
+        await octokit.rest.actions.createWorkflowDispatch({
+            owner: repo.owner,
+            repo: repo.repo,
+            workflow_id: 'quiz-generate.yml',
+            ref: prData.data.head.ref,
+            inputs: { pr_number: String(prNumber) },
+        });
+        core.info(`Force-dispatched quiz-generate.yml for PR #${prNumber}`);
+        return;
+    }
+    const allowed = await isAllowedResponder(octokit, repo.owner, repo.repo, prNumber, commenterLogin, ctx.authorLogin, quizResponder);
+    if (!allowed) {
+        core.info(`@${commenterLogin} is not allowed to respond (policy: ${quizResponder}), skipping`);
         return;
     }
     // ---------------------------------------------------------------------------
     // !balrog retry — regenerate quiz via workflow_dispatch
     // ---------------------------------------------------------------------------
     if (RETRY_REGEX.test(commentBody)) {
-        // Load quiz to check if they still have attempts left
+        await handleRetryDispatch();
+        return;
+    }
+    // ---------------------------------------------------------------------------
+    // Checkbox mode — edited event from the quiz comment itself
+    // ---------------------------------------------------------------------------
+    if (eventAction === 'edited') {
+        const isActiveCheckbox = commentBody.includes('<!-- balrog-mode: checkbox -->');
+        const isLockedCheckbox = commentBody.includes('<!-- balrog-mode: checkbox-locked -->');
+        if (!isActiveCheckbox && !isLockedCheckbox) {
+            core.info('Edited comment is not a checkbox quiz, skipping');
+            return;
+        }
+        // Verify editor is the PR author
+        if (commenterLogin !== ctx.authorLogin) {
+            core.info(`Checkbox edit from @${commenterLogin}, not PR author @${ctx.authorLogin}, skipping`);
+            return;
+        }
+        // Retry wins over submit when both are checked
+        if ((0, quiz_1.parseRetryCheckbox)(commentBody)) {
+            await handleRetryDispatch();
+            return;
+        }
+        if (isActiveCheckbox) {
+            const checkboxAnswers = (0, quiz_1.parseCheckboxAnswers)(commentBody);
+            if (!checkboxAnswers) {
+                core.info('Submit checkbox not checked yet, skipping');
+                return;
+            }
+            await handleEvaluation(checkboxAnswers, prNumber, comment.id, true);
+        }
+        return;
+    }
+    // ---------------------------------------------------------------------------
+    // !balrog <answers> — evaluate answers (command mode)
+    // ---------------------------------------------------------------------------
+    const answers = (0, quiz_1.parseAnswerComment)(commentBody);
+    if (!answers) {
+        core.info('Comment does not contain a !balrog command, skipping');
+        return;
+    }
+    core.info(`Parsed answers: ${JSON.stringify(answers)}`);
+    await handleEvaluation(answers, prNumber, null, false);
+    // ---------------------------------------------------------------------------
+    // Shared retry dispatch logic
+    // ---------------------------------------------------------------------------
+    async function handleRetryDispatch() {
         const quizForRetry = await (0, github_1.loadQuizArtifact)(prNumber, octokit, repo.owner, repo.repo, token);
         if (quizForRetry && quizForRetry.maxAttempts > 0 && quizForRetry.attemptsUsed < quizForRetry.maxAttempts) {
             const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed;
-            await (0, github_1.postComment)(octokit, ctx, `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`);
+            if (eventAction === 'edited') {
+                // Checkbox mode: show warning inside the quiz comment and clear retry checkbox
+                const lang = language === 'auto' ? detectLanguage(quizForRetry) : language;
+                const warning = `> ⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.\n\n`;
+                const currentSelections = (0, quiz_1.parseCurrentSelections)(commentBody);
+                const reset = (0, quiz_1.renderQuizCommentCheckbox)(quizForRetry, lang, currentSelections);
+                await (0, github_1.updateComment)(octokit, ctx, comment.id, warning + reset + '\n\n' + (0, quiz_1.renderUpdatedAt)(new Date(), lang));
+            }
+            else {
+                await (0, github_1.postComment)(octokit, ctx, `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`);
+            }
             return;
         }
         core.info(`@${commenterLogin} requested a retry`);
-        await (0, github_1.postComment)(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin));
-        // Trigger the generate workflow via workflow_dispatch
+        // Checkbox mode: update the quiz comment with a regenerating banner (generate.ts will replace it)
+        if (eventAction === 'edited' && quizForRetry) {
+            const lang = language === 'auto' ? detectLanguage(quizForRetry) : language;
+            const banner = (0, quiz_1.renderRegeneratingComment)(quizForRetry, lang);
+            await (0, github_1.updateComment)(octokit, ctx, comment.id, banner + '\n\n' + (0, quiz_1.renderUpdatedAt)(new Date(), lang));
+        }
+        else {
+            await (0, github_1.postComment)(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin));
+        }
         await octokit.rest.actions.createWorkflowDispatch({
             owner: repo.owner,
             repo: repo.repo,
@@ -104,54 +238,104 @@ async function run() {
             inputs: { pr_number: String(prNumber) },
         });
         core.info(`Dispatched quiz-generate.yml for PR #${prNumber} on ref ${prData.data.head.ref}`);
-        return;
     }
     // ---------------------------------------------------------------------------
-    // !balrog <answers> — evaluate answers
+    // Shared evaluation logic
     // ---------------------------------------------------------------------------
-    const answers = (0, quiz_1.parseAnswerComment)(commentBody);
-    if (!answers) {
-        core.info('Comment does not contain a !balrog command, skipping');
-        return;
+    async function handleEvaluation(submittedAnswers, prNum, quizCommentId, isCheckbox) {
+        const quiz = await (0, github_1.loadQuizArtifact)(prNum, octokit, repo.owner, repo.repo, token);
+        if (!quiz) {
+            core.warning(`No quiz found for PR #${prNum}. Was the generate workflow run?`);
+            await (0, github_1.postComment)(octokit, ctx, '⚠️ No quiz found for this PR. Type `!balrog retry` or push a new commit to regenerate it.');
+            return;
+        }
+        if (quiz.maxAttempts > 0 && quiz.attemptsUsed >= quiz.maxAttempts) {
+            await (0, github_1.postComment)(octokit, ctx, EXHAUSTED_MESSAGE_EN(commenterLogin, quiz.maxAttempts));
+            return;
+        }
+        const lang = language === 'auto' ? detectLanguage(quiz) : language;
+        const withFooter = (body) => body + '\n\n' + (0, quiz_1.renderUpdatedAt)(new Date(), lang);
+        // Find the quiz comment — reuse for fighting banner and final update
+        const targetCommentId = isCheckbox
+            ? (quizCommentId ?? await (0, github_1.findQuizComment)(octokit, ctx, quiz.id))
+            : await (0, github_1.findQuizComment)(octokit, ctx, quiz.id);
+        // Show fighting banner while evaluation runs
+        if (targetCommentId) {
+            try {
+                const banner = (0, quiz_1.renderFightingBanner)(lang);
+                let bannerBody;
+                if (isCheckbox) {
+                    // Change mode marker to prevent a re-trigger from this edit.
+                    // GITHUB_TOKEN edits don't fire workflow events by default, but this
+                    // guards against PAT-based setups where they would.
+                    bannerBody = banner + (0, quiz_1.renderQuizCommentCheckbox)(quiz, lang, submittedAnswers)
+                        .replace('<!-- balrog-mode: checkbox -->', '<!-- balrog-mode: checkbox-evaluating -->');
+                }
+                else {
+                    bannerBody = banner + (0, quiz_1.renderQuizComment)(quiz, lang);
+                }
+                await (0, github_1.updateComment)(octokit, ctx, targetCommentId, withFooter(bannerBody));
+            }
+            catch (e) {
+                core.info(`Could not update quiz comment with fighting banner: ${e}`);
+            }
+        }
+        const result = (0, quiz_1.evaluateQuiz)(quiz, submittedAnswers);
+        const updatedQuiz = {
+            ...quiz,
+            attemptsUsed: quiz.attemptsUsed + 1,
+            passed: result.passed,
+            attempts: [...(quiz.attempts ?? []), { n: quiz.attemptsUsed + 1, answers: submittedAnswers, score: result.score }],
+        };
+        await (0, github_1.saveQuizArtifact)(updatedQuiz);
+        // Build single combined comment: history (top) + quiz (middle) + result (bottom)
+        const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts;
+        let quizSection;
+        if (isCheckbox) {
+            if (result.passed || attemptsExhausted) {
+                quizSection = (0, quiz_1.renderLockedQuizComment)(updatedQuiz, lang);
+            }
+            else {
+                quizSection = (0, quiz_1.renderQuizCommentCheckbox)(updatedQuiz, lang); // fresh checkboxes for next attempt
+            }
+        }
+        else {
+            quizSection = (0, quiz_1.renderQuizComment)(updatedQuiz, lang);
+        }
+        const resultBlock = (0, quiz_1.renderResultComment)({ ...result, quiz: updatedQuiz }, lang);
+        // Retry checkbox goes at very bottom (after result) so it's always visible
+        const retryLine = isCheckbox && !result.passed && attemptsExhausted
+            ? `\n\n- [ ] ${lang.startsWith('fr') ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz'}`
+            : '';
+        const combined = quizSection + '\n\n' + resultBlock + retryLine;
+        if (targetCommentId) {
+            await (0, github_1.updateComment)(octokit, ctx, targetCommentId, withFooter(combined));
+            core.info(`Updated quiz comment #${targetCommentId} with result`);
+        }
+        else {
+            await (0, github_1.postComment)(octokit, ctx, withFooter(combined));
+            core.info('No quiz comment found — posted new combined comment');
+        }
+        const checkId = await (0, github_1.findExistingCheck)(octokit, ctx);
+        if (!checkId) {
+            core.warning('No existing check found — was quiz-generate run? Cannot update merge gate.');
+            return;
+        }
+        const attemptsLeft = quiz.maxAttempts === 0
+            ? Infinity
+            : quiz.maxAttempts - updatedQuiz.attemptsUsed;
+        if (result.passed) {
+            await (0, github_1.updateCheckSuccess)(octokit, ctx, checkId, result.score);
+            core.info(`Quiz PASSED — ${result.score}% — merge unblocked`);
+        }
+        else {
+            await (0, github_1.updateCheckFailure)(octokit, ctx, checkId, result.score, attemptsLeft === Infinity ? -1 : attemptsLeft);
+            core.info(`Quiz FAILED — ${result.score}% — ${attemptsLeft} attempts left`);
+        }
+        core.setOutput('score', String(result.score));
+        core.setOutput('passed', String(result.passed));
+        core.setOutput('attempts-used', String(updatedQuiz.attemptsUsed));
     }
-    core.info(`Parsed answers: ${JSON.stringify(answers)}`);
-    const quiz = await (0, github_1.loadQuizArtifact)(prNumber, octokit, repo.owner, repo.repo, token);
-    if (!quiz) {
-        core.warning(`No quiz found for PR #${prNumber}. Was the generate workflow run?`);
-        await (0, github_1.postComment)(octokit, ctx, '⚠️ No quiz found for this PR. Type `!balrog retry` or push a new commit to regenerate it.');
-        return;
-    }
-    // Check attempt limits — inform and stop, don't silently ignore
-    if (quiz.maxAttempts > 0 && quiz.attemptsUsed >= quiz.maxAttempts) {
-        await (0, github_1.postComment)(octokit, ctx, EXHAUSTED_MESSAGE_EN(commenterLogin, quiz.maxAttempts));
-        return;
-    }
-    // Evaluate
-    const result = (0, quiz_1.evaluateQuiz)(quiz, answers);
-    const updatedQuiz = { ...quiz, attemptsUsed: quiz.attemptsUsed + 1, passed: result.passed };
-    await (0, github_1.saveQuizArtifact)(updatedQuiz);
-    const lang = language === 'auto' ? detectLanguage(quiz) : language;
-    const resultBody = (0, quiz_1.renderResultComment)({ ...result, quiz: updatedQuiz }, lang);
-    await (0, github_1.postComment)(octokit, ctx, resultBody);
-    const checkId = await (0, github_1.findExistingCheck)(octokit, ctx);
-    if (!checkId) {
-        core.warning('No existing check found — was quiz-generate run? Cannot update merge gate.');
-        return;
-    }
-    const attemptsLeft = quiz.maxAttempts === 0
-        ? Infinity
-        : quiz.maxAttempts - updatedQuiz.attemptsUsed;
-    if (result.passed) {
-        await (0, github_1.updateCheckSuccess)(octokit, ctx, checkId, result.score);
-        core.info(`Quiz PASSED — ${result.score}% — merge unblocked`);
-    }
-    else {
-        await (0, github_1.updateCheckFailure)(octokit, ctx, checkId, result.score, attemptsLeft === Infinity ? -1 : attemptsLeft);
-        core.info(`Quiz FAILED — ${result.score}% — ${attemptsLeft} attempts left`);
-    }
-    core.setOutput('score', String(result.score));
-    core.setOutput('passed', String(result.passed));
-    core.setOutput('attempts-used', String(updatedQuiz.attemptsUsed));
 }
 function detectLanguage(quiz) {
     const sample = quiz.questions[0]?.text ?? '';

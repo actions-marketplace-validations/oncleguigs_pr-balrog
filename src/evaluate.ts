@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import { parseAnswerComment, parseCheckboxAnswers, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox } from './quiz'
+import { parseAnswerComment, parseCheckboxAnswers, parseCurrentSelections, parseRetryCheckbox, evaluateQuiz, renderResultComment, renderLockedQuizComment, renderQuizCommentCheckbox, renderQuizComment, renderFightingBanner, renderUpdatedAt, renderRegeneratingComment } from './quiz'
 import {
   loadQuizArtifact,
   saveQuizArtifact,
@@ -8,7 +8,6 @@ import {
   updateComment,
   findExistingCheck,
   findQuizComment,
-  findAnyBalrogComment,
   updateCheckSuccess,
   updateCheckFailure,
 } from './github'
@@ -173,28 +172,7 @@ async function run(): Promise<void> {
   // !balrog retry — regenerate quiz via workflow_dispatch
   // ---------------------------------------------------------------------------
   if (RETRY_REGEX.test(commentBody)) {
-    // Load quiz to check if they still have attempts left
-    const quizForRetry = await loadQuizArtifact(prNumber, octokit, repo.owner, repo.repo, token)
-    if (quizForRetry && quizForRetry.maxAttempts > 0 && quizForRetry.attemptsUsed < quizForRetry.maxAttempts) {
-      const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed
-      await postComment(octokit, ctx,
-        `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`)
-      return
-    }
-
-    core.info(`@${commenterLogin} requested a retry`)
-    await postComment(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin))
-
-    // Trigger the generate workflow via workflow_dispatch
-    await octokit.rest.actions.createWorkflowDispatch({
-      owner: repo.owner,
-      repo: repo.repo,
-      workflow_id: 'quiz-generate.yml',
-      ref: prData.data.head.ref,
-      inputs: { pr_number: String(prNumber) },
-    })
-
-    core.info(`Dispatched quiz-generate.yml for PR #${prNumber} on ref ${prData.data.head.ref}`)
+    await handleRetryDispatch()
     return
   }
 
@@ -202,9 +180,10 @@ async function run(): Promise<void> {
   // Checkbox mode — edited event from the quiz comment itself
   // ---------------------------------------------------------------------------
   if (eventAction === 'edited') {
-    // Only handle edits to the quiz comment (identified by the hidden marker)
-    if (!commentBody.includes('<!-- balrog-mode: checkbox -->')) {
-      core.info('Edited comment is not an active checkbox quiz, skipping')
+    const isActiveCheckbox = commentBody.includes('<!-- balrog-mode: checkbox -->')
+    const isLockedCheckbox = commentBody.includes('<!-- balrog-mode: checkbox-locked -->')
+    if (!isActiveCheckbox && !isLockedCheckbox) {
+      core.info('Edited comment is not a checkbox quiz, skipping')
       return
     }
 
@@ -214,13 +193,20 @@ async function run(): Promise<void> {
       return
     }
 
-    const checkboxAnswers = parseCheckboxAnswers(commentBody)
-    if (!checkboxAnswers) {
-      core.info('Submit checkbox not checked yet, skipping')
+    // Retry wins over submit when both are checked
+    if (parseRetryCheckbox(commentBody)) {
+      await handleRetryDispatch()
       return
     }
 
-    await handleEvaluation(checkboxAnswers, prNumber, comment.id as number, true)
+    if (isActiveCheckbox) {
+      const checkboxAnswers = parseCheckboxAnswers(commentBody)
+      if (!checkboxAnswers) {
+        core.info('Submit checkbox not checked yet, skipping')
+        return
+      }
+      await handleEvaluation(checkboxAnswers, prNumber, comment.id as number, true)
+    }
     return
   }
 
@@ -235,6 +221,50 @@ async function run(): Promise<void> {
 
   core.info(`Parsed answers: ${JSON.stringify(answers)}`)
   await handleEvaluation(answers, prNumber, null, false)
+
+  // ---------------------------------------------------------------------------
+  // Shared retry dispatch logic
+  // ---------------------------------------------------------------------------
+  async function handleRetryDispatch(): Promise<void> {
+    const quizForRetry = await loadQuizArtifact(prNumber, octokit, repo.owner, repo.repo, token)
+    if (quizForRetry && quizForRetry.maxAttempts > 0 && quizForRetry.attemptsUsed < quizForRetry.maxAttempts) {
+      const left = quizForRetry.maxAttempts - quizForRetry.attemptsUsed
+
+      if (eventAction === 'edited') {
+        // Checkbox mode: show warning inside the quiz comment and clear retry checkbox
+        const lang = language === 'auto' ? detectLanguage(quizForRetry) : language
+        const warning = `> ⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.\n\n`
+        const currentSelections = parseCurrentSelections(commentBody)
+        const reset = renderQuizCommentCheckbox(quizForRetry, lang, currentSelections)
+        await updateComment(octokit, ctx, comment!.id as number, warning + reset + '\n\n' + renderUpdatedAt(new Date(), lang))
+      } else {
+        await postComment(octokit, ctx,
+          `⚠️ @${commenterLogin} You still have **${left}** attempt(s) remaining — use them before requesting a retry.`)
+      }
+      return
+    }
+
+    core.info(`@${commenterLogin} requested a retry`)
+
+    // Checkbox mode: update the quiz comment with a regenerating banner (generate.ts will replace it)
+    if (eventAction === 'edited' && quizForRetry) {
+      const lang = language === 'auto' ? detectLanguage(quizForRetry) : language
+      const banner = renderRegeneratingComment(quizForRetry, lang)
+      await updateComment(octokit, ctx, comment!.id as number, banner + '\n\n' + renderUpdatedAt(new Date(), lang))
+    } else {
+      await postComment(octokit, ctx, RETRY_TRIGGERED_EN(commenterLogin))
+    }
+
+    await octokit.rest.actions.createWorkflowDispatch({
+      owner: repo.owner,
+      repo: repo.repo,
+      workflow_id: 'quiz-generate.yml',
+      ref: prData.data.head.ref,
+      inputs: { pr_number: String(prNumber) },
+    })
+
+    core.info(`Dispatched quiz-generate.yml for PR #${prNumber} on ref ${prData.data.head.ref}`)
+  }
 
   // ---------------------------------------------------------------------------
   // Shared evaluation logic
@@ -258,35 +288,71 @@ async function run(): Promise<void> {
       return
     }
 
-    const result = evaluateQuiz(quiz, submittedAnswers)
-    const updatedQuiz = { ...quiz, attemptsUsed: quiz.attemptsUsed + 1, passed: result.passed }
-    await saveQuizArtifact(updatedQuiz)
-
     const lang = language === 'auto' ? detectLanguage(quiz) : language
-    const resultBody = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
-    const existingResultId = await findAnyBalrogComment(octokit, ctx)
-    if (existingResultId) {
-      await updateComment(octokit, ctx, existingResultId, resultBody)
-      core.info(`Updated result comment #${existingResultId}`)
-    } else {
-      await postComment(octokit, ctx, resultBody)
+    const withFooter = (body: string) => body + '\n\n' + renderUpdatedAt(new Date(), lang)
+
+    // Find the quiz comment — reuse for fighting banner and final update
+    const targetCommentId = isCheckbox
+      ? (quizCommentId ?? await findQuizComment(octokit, ctx, quiz.id))
+      : await findQuizComment(octokit, ctx, quiz.id)
+
+    // Show fighting banner while evaluation runs
+    if (targetCommentId) {
+      try {
+        const banner = renderFightingBanner(lang)
+        let bannerBody: string
+        if (isCheckbox) {
+          // Change mode marker to prevent a re-trigger from this edit.
+          // GITHUB_TOKEN edits don't fire workflow events by default, but this
+          // guards against PAT-based setups where they would.
+          bannerBody = banner + renderQuizCommentCheckbox(quiz, lang, submittedAnswers)
+            .replace('<!-- balrog-mode: checkbox -->', '<!-- balrog-mode: checkbox-evaluating -->')
+        } else {
+          bannerBody = banner + renderQuizComment(quiz, lang)
+        }
+        await updateComment(octokit, ctx, targetCommentId, withFooter(bannerBody))
+      } catch (e) {
+        core.info(`Could not update quiz comment with fighting banner: ${e}`)
+      }
     }
 
-    // Update the quiz comment: reset checkboxes for next attempt, or lock when done
+    const result = evaluateQuiz(quiz, submittedAnswers)
+    const updatedQuiz = {
+      ...quiz,
+      attemptsUsed: quiz.attemptsUsed + 1,
+      passed: result.passed,
+      attempts: [...(quiz.attempts ?? []), { n: quiz.attemptsUsed + 1, answers: submittedAnswers, score: result.score }],
+    }
+    await saveQuizArtifact(updatedQuiz)
+
+    // Build single combined comment: history (top) + quiz (middle) + result (bottom)
+    const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts
+
+    let quizSection: string
     if (isCheckbox) {
-      const targetCommentId = quizCommentId ?? await findQuizComment(octokit, ctx, quiz.id)
-      if (targetCommentId) {
-        const attemptsExhausted = updatedQuiz.maxAttempts > 0 && updatedQuiz.attemptsUsed >= updatedQuiz.maxAttempts
-        if (result.passed || attemptsExhausted) {
-          const locked = renderLockedQuizComment(updatedQuiz, lang)
-          await updateComment(octokit, ctx, targetCommentId, locked)
-          core.info(`Locked quiz comment #${targetCommentId}`)
-        } else {
-          const reset = renderQuizCommentCheckbox(updatedQuiz, lang, submittedAnswers)
-          await updateComment(octokit, ctx, targetCommentId, reset)
-          core.info(`Reset quiz comment #${targetCommentId} for next attempt`)
-        }
+      if (result.passed || attemptsExhausted) {
+        quizSection = renderLockedQuizComment(updatedQuiz, lang)
+      } else {
+        quizSection = renderQuizCommentCheckbox(updatedQuiz, lang) // fresh checkboxes for next attempt
       }
+    } else {
+      quizSection = renderQuizComment(updatedQuiz, lang)
+    }
+
+    const resultBlock = renderResultComment({ ...result, quiz: updatedQuiz }, lang)
+
+    // Retry checkbox goes at very bottom (after result) so it's always visible
+    const retryLine = isCheckbox && !result.passed && attemptsExhausted
+      ? `\n\n- [ ] ${lang.startsWith('fr') ? '🔄 Demander un nouveau quiz' : '🔄 Request a new quiz'}`
+      : ''
+
+    const combined = quizSection + '\n\n' + resultBlock + retryLine
+    if (targetCommentId) {
+      await updateComment(octokit, ctx, targetCommentId, withFooter(combined))
+      core.info(`Updated quiz comment #${targetCommentId} with result`)
+    } else {
+      await postComment(octokit, ctx, withFooter(combined))
+      core.info('No quiz comment found — posted new combined comment')
     }
 
     const checkId = await findExistingCheck(octokit, ctx)

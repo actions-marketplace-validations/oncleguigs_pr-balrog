@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import type { AIProvider, AnswerMode, QuizSize } from './types'
+import type { AIProvider, AnswerMode, QuizSize, QuizHistoryEntry } from './types'
 import { pickQuizSize, buildQuiz, renderQuizComment, renderQuizCommentCheckbox } from './quiz'
 import {
   fetchFilteredDiff,
@@ -9,6 +9,7 @@ import {
   updateComment,
   findAnyBalrogComment,
   saveQuizArtifact,
+  loadQuizArtifact,
 } from './github'
 import { createProvider } from './providers'
 
@@ -104,8 +105,24 @@ async function run(): Promise<void> {
   const adapter = createProvider(provider, apiKey, model)
   const questions = await adapter.generateQuiz({ diff, numQuestions, language, additionalPrompt })
 
+  // Load old quiz BEFORE saving the new one (both share the same artifact name)
+  const oldQuiz = await loadQuizArtifact(ctx.prNumber, octokit, ctx.owner, ctx.repo, token)
+
+  // Carry history forward so previous quiz questions + attempts are preserved
+  const previousQuizzes: QuizHistoryEntry[] = oldQuiz ? [
+    ...(oldQuiz.previousQuizzes ?? []),
+    {
+      id: oldQuiz.id,
+      generatedAt: oldQuiz.generatedAt,
+      questions: oldQuiz.questions,
+      passThreshold: oldQuiz.passThreshold,
+      attempts: oldQuiz.attempts ?? [],
+      passed: oldQuiz.passed,
+    },
+  ] : []
+
   // Persist quiz + correct answers as artifact (author can't see this)
-  const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode)
+  const quiz = buildQuiz(questions, ctx.prNumber, ctx.headSha, passThreshold, maxAttempts, answerMode, previousQuizzes)
   await saveQuizArtifact(quiz)
 
   // Post or update quiz comment (without correct answers)

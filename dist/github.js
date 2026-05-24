@@ -45,6 +45,9 @@ exports.updateCheckFailure = updateCheckFailure;
 exports.findExistingCheck = findExistingCheck;
 exports.postComment = postComment;
 exports.updateComment = updateComment;
+exports.findQuizComment = findQuizComment;
+exports.findAnyBalrogComment = findAnyBalrogComment;
+exports.findResultComment = findResultComment;
 exports.saveQuizArtifact = saveQuizArtifact;
 exports.loadQuizArtifact = loadQuizArtifact;
 const core = __importStar(require("@actions/core"));
@@ -184,6 +187,29 @@ async function updateComment(octokit, ctx, commentId, body) {
         comment_id: commentId,
         body,
     });
+}
+async function findQuizComment(octokit, ctx, quizId) {
+    return findBalrogComment(octokit, ctx, `<!-- balrog-quiz-id: ${quizId} -->`);
+}
+async function findAnyBalrogComment(octokit, ctx) {
+    return findBalrogComment(octokit, ctx, '<!-- balrog-quiz-id:');
+}
+async function findResultComment(octokit, ctx) {
+    return findBalrogComment(octokit, ctx, '<!-- balrog-result -->');
+}
+async function findBalrogComment(octokit, ctx, marker) {
+    for await (const page of octokit.paginate.iterator(octokit.rest.issues.listComments, {
+        owner: ctx.owner,
+        repo: ctx.repo,
+        issue_number: ctx.prNumber,
+        per_page: 100,
+    })) {
+        for (const comment of page.data) {
+            if ((comment.body ?? '').includes(marker))
+                return comment.id;
+        }
+    }
+    return null;
 }
 // ---------------------------------------------------------------------------
 // Artifact storage (quiz + answers)

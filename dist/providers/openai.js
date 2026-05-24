@@ -18,7 +18,7 @@ class OpenAIAdapter {
             response_format: { type: 'json_object' },
             messages: [
                 { role: 'system', content: (0, prompt_1.buildSystemPrompt)() },
-                { role: 'user', content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language) },
+                { role: 'user', content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language, opts.additionalPrompt) },
             ],
         });
         const text = response.choices[0]?.message?.content ?? '';
@@ -50,7 +50,7 @@ class AzureOpenAIAdapter {
             response_format: { type: 'json_object' },
             messages: [
                 { role: 'system', content: (0, prompt_1.buildSystemPrompt)() },
-                { role: 'user', content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language) },
+                { role: 'user', content: (0, prompt_1.buildUserPrompt)(opts.diff, opts.numQuestions, opts.language, opts.additionalPrompt) },
             ],
         });
         const text = response.choices[0]?.message?.content ?? '';

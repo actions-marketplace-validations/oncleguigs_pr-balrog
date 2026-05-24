@@ -4,12 +4,19 @@ import {
   evaluateQuiz,
   parseAnswerComment,
   parseCheckboxAnswers,
+  parseCurrentSelections,
+  parseRetryCheckbox,
   renderQuizComment,
   renderQuizCommentCheckbox,
   renderLockedQuizComment,
   renderResultComment,
+  renderAttemptsHistory,
+  renderFightingBanner,
+  renderUpdatedAt,
+  renderRegeneratingComment,
+  renderPreviousQuizSummary,
 } from '../quiz'
-import type { Question } from '../types'
+import type { Question, AttemptRecord, QuizHistoryEntry } from '../types'
 
 const SAMPLE_QUESTIONS: Question[] = [
   {
@@ -222,9 +229,9 @@ describe('renderQuizCommentCheckbox', () => {
   it('contains task-list checkboxes for each option', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderQuizCommentCheckbox(quiz)
-    expect(comment).toContain('- [ ] **Q1A)**')
-    expect(comment).toContain('- [ ] **Q1B)**')
-    expect(comment).toContain('- [ ] **Q1C)**')
+    expect(comment).toContain('- [ ] **A)**')
+    expect(comment).toContain('- [ ] **B)**')
+    expect(comment).toContain('- [ ] **C)**')
   })
 
   it('contains the submit checkbox', () => {
@@ -254,14 +261,35 @@ describe('renderQuizCommentCheckbox', () => {
   })
 })
 
+describe('parseCurrentSelections', () => {
+  it('parses selections from rendered checkbox comment', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const previousAnswers = { '1': ['B'] as ('A'|'B'|'C')[], '3': ['A', 'B'] as ('A'|'B'|'C')[] }
+    const body = renderQuizCommentCheckbox(quiz, 'en', previousAnswers)
+    const sel = parseCurrentSelections(body)
+    expect(sel['1']).toEqual(['B'])
+    expect(sel['3']).toEqual(['A', 'B'])
+    expect(sel['2']).toBeUndefined()
+  })
+
+  it('returns empty object when nothing checked', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    const body = renderQuizCommentCheckbox(quiz)
+    expect(parseCurrentSelections(body)).toEqual({})
+  })
+})
+
 describe('parseCheckboxAnswers', () => {
   const makeBody = (checks: Record<string, string[]>, submitChecked = true) => {
     const lines: string[] = []
     for (let q = 1; q <= 3; q++) {
+      lines.push(`**Q${q}.** question text`)
+      lines.push('')
       for (const letter of ['A', 'B', 'C']) {
-        const checked = (checks[q] ?? []).includes(letter) ? 'x' : ' '
-        lines.push(`- [${checked}] **Q${q}${letter})** option text`)
+        const checked = (checks[String(q)] ?? []).includes(letter) ? 'x' : ' '
+        lines.push(`- [${checked}] **${letter})** option text`)
       }
+      lines.push('')
     }
     lines.push(submitChecked ? '- [x] ✅ Submit my answers' : '- [ ] ✅ Submit my answers')
     return lines.join('\n')
@@ -304,17 +332,148 @@ describe('renderLockedQuizComment', () => {
     expect(comment).toContain('locked')
   })
 
-  it('has no task-list checkboxes', () => {
+  it('has no answer-option checkboxes (A/B/C are plain text)', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderLockedQuizComment(quiz)
-    expect(comment).not.toContain('- [ ]')
-    expect(comment).not.toContain('- [x]')
+    expect(comment).not.toContain('- [ ] **A)**')
+    expect(comment).not.toContain('- [ ] **B)**')
+    expect(comment).not.toContain('- [ ] **C)**')
+  })
+
+  it('does not include retry checkbox (caller appends it)', () => {
+    const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
+    expect(renderLockedQuizComment({ ...quiz, passed: false })).not.toContain('🔄 Request a new quiz')
+    expect(renderLockedQuizComment({ ...quiz, passed: true })).not.toContain('🔄 Request a new quiz')
   })
 
   it('uses checkbox-locked marker', () => {
     const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3, 'checkbox')
     const comment = renderLockedQuizComment(quiz)
     expect(comment).toContain('<!-- balrog-mode: checkbox-locked -->')
+  })
+})
+
+describe('renderAttemptsHistory', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('returns empty string when no attempts and no previous quizzes', () => {
+    expect(renderAttemptsHistory(quiz)).toBe('')
+    expect(renderAttemptsHistory({ ...quiz, attempts: [] })).toBe('')
+  })
+
+  it('renders collapsible block for current attempts', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'], '2': ['C'] }, score: 33 }]
+    const out = renderAttemptsHistory({ ...quiz, attempts })
+    expect(out).toContain('<details>')
+    expect(out).toContain('Past attempts (1)')
+    expect(out).toContain('Attempt 1:')
+    expect(out).toContain('33%')
+    expect(out).toContain('Q1: A')
+    expect(out).toContain('Q2: C')
+  })
+
+  it('renders multiple current attempts sorted by question number', () => {
+    const attempts: AttemptRecord[] = [
+      { n: 1, answers: { '3': ['B'], '1': ['A'] }, score: 33 },
+      { n: 2, answers: { '1': ['B'], '2': ['A', 'B'], '3': ['B'] }, score: 67 },
+    ]
+    const out = renderAttemptsHistory({ ...quiz, attempts })
+    expect(out).toContain('Past attempts (2)')
+    expect(out).toContain('Attempt 2:')
+    expect(out).toContain('67%')
+    const attempt1Line = out.split('\n').find((l) => l.includes('Attempt 1:'))!
+    expect(attempt1Line.indexOf('Q1')).toBeLessThan(attempt1Line.indexOf('Q3'))
+  })
+
+  it('renders in French (current attempts only)', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const out = renderAttemptsHistory({ ...quiz, attempts }, 'fr')
+    expect(out).toContain('Tentatives passées (1)')
+  })
+
+  it('renders previous quizzes as nested <details> with questions + attempts', () => {
+    const prevEntry: QuizHistoryEntry = {
+      id: 'prev-id',
+      generatedAt: '2025-05-20T10:00:00.000Z',
+      questions: SAMPLE_QUESTIONS,
+      passThreshold: 80,
+      attempts: [{ n: 1, answers: { '1': ['A'] }, score: 33 }],
+      passed: false,
+    }
+    const out = renderAttemptsHistory({ ...quiz, previousQuizzes: [prevEntry] })
+    // Outer summary mentions history across quizzes
+    expect(out).toContain('History')
+    expect(out).toContain('across 2 quizzes')
+    // Previous quiz entry as nested details
+    expect(out).toContain('Quiz 1 — 2025-05-20 — ❌')
+    // Questions with correct answers revealed
+    expect(out).toContain('✅ **B)**') // Q1 correct answer
+    expect(out).toContain('⬜ **A)**')
+    expect(out).toContain('💡')
+    // Attempts inside
+    expect(out).toContain('Attempts:')
+    expect(out).toContain('Attempt 1:')
+    expect(out).toContain('Q1: A')
+  })
+
+  it('shows "current quiz" header when there are both current and previous attempts', () => {
+    const prevEntry: QuizHistoryEntry = {
+      id: 'prev-id',
+      generatedAt: '2025-05-20T10:00:00.000Z',
+      questions: SAMPLE_QUESTIONS,
+      passThreshold: 80,
+      attempts: [],
+      passed: false,
+    }
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['B'] }, score: 33 }]
+    const out = renderAttemptsHistory({ ...quiz, attempts, previousQuizzes: [prevEntry] })
+    expect(out).toContain('Current quiz')
+    expect(out).toContain('Quiz 1')
+  })
+
+  it('renders previous quiz in French', () => {
+    const prevEntry: QuizHistoryEntry = {
+      id: 'prev-id',
+      generatedAt: '2025-05-20T10:00:00.000Z',
+      questions: SAMPLE_QUESTIONS,
+      passThreshold: 80,
+      attempts: [{ n: 1, answers: { '1': ['A'] }, score: 33 }],
+      passed: false,
+    }
+    const out = renderAttemptsHistory({ ...quiz, previousQuizzes: [prevEntry] }, 'fr')
+    expect(out).toContain('Historique')
+    expect(out).toContain('Tentatives :')
+  })
+
+  it('renders history before quiz ID marker in quiz comment', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const comment = renderQuizComment({ ...quiz, attempts })
+    expect(comment).toContain('Past attempts')
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('<!-- balrog-quiz-id:'))
+  })
+
+  it('renders history before mode marker in checkbox comment', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const comment = renderQuizCommentCheckbox({ ...quiz, attempts })
+    expect(comment).toContain('Past attempts')
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('<!-- balrog-mode:'))
+  })
+
+  it('renders history before mode marker in locked comment', () => {
+    const attempts: AttemptRecord[] = [{ n: 1, answers: { '1': ['A'] }, score: 33 }]
+    const comment = renderLockedQuizComment({ ...quiz, attempts })
+    expect(comment).toContain('Past attempts')
+    expect(comment.indexOf('Past attempts')).toBeLessThan(comment.indexOf('<!-- balrog-mode:'))
+  })
+})
+
+describe('renderFightingBanner', () => {
+  it('contains fighting text in English', () => {
+    expect(renderFightingBanner()).toContain('Balrog is fighting you')
+  })
+
+  it('contains fighting text in French', () => {
+    expect(renderFightingBanner('fr')).toContain('Balrog se bat contre toi')
   })
 })
 
@@ -344,5 +503,120 @@ describe('renderResultComment', () => {
     expect(comment).not.toContain(SAMPLE_QUESTIONS[0].explanation)
     // Q2 wrong — explanation should appear
     expect(comment).toContain(SAMPLE_QUESTIONS[1].explanation)
+  })
+})
+
+describe('parseRetryCheckbox', () => {
+  it('returns false when unchecked', () => {
+    expect(parseRetryCheckbox('- [ ] 🔄 Request a new quiz')).toBe(false)
+  })
+
+  it('returns true when checked (EN)', () => {
+    expect(parseRetryCheckbox('- [x] 🔄 Request a new quiz')).toBe(true)
+  })
+
+  it('returns true when checked (FR)', () => {
+    expect(parseRetryCheckbox('- [x] 🔄 Demander un nouveau quiz')).toBe(true)
+  })
+
+  it('returns false when submit is checked but not retry', () => {
+    expect(parseRetryCheckbox('- [x] ✅ Submit my answers\n- [ ] 🔄 Request a new quiz')).toBe(false)
+  })
+})
+
+describe('renderUpdatedAt', () => {
+  it('contains "Updated" label in English', () => {
+    expect(renderUpdatedAt(new Date('2026-05-21T11:33:00Z'))).toBe('<sub>Updated 2026-05-21 11:33 UTC</sub>')
+  })
+
+  it('contains "Mis à jour" label in French', () => {
+    expect(renderUpdatedAt(new Date('2026-05-21T11:33:00Z'), 'fr')).toBe('<sub>Mis à jour 2026-05-21 11:33 UTC</sub>')
+  })
+})
+
+describe('retry checkbox in rendered comments', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('active checkbox comment does NOT contain retry checkbox', () => {
+    const body = renderQuizCommentCheckbox(quiz)
+    expect(body).not.toContain('🔄 Request a new quiz')
+  })
+
+  it('locked comment does NOT contain retry checkbox (appended by caller)', () => {
+    expect(renderLockedQuizComment({ ...quiz, passed: false, attemptsUsed: 3 })).not.toContain('🔄 Request a new quiz')
+    expect(renderLockedQuizComment({ ...quiz, passed: true })).not.toContain('🔄 Request a new quiz')
+  })
+})
+
+describe('renderRegeneratingComment', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('contains regenerating banner text', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain('Generating your new quiz')
+  })
+
+  it('contains the quiz-id marker so generate.ts can find the comment', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain(`<!-- balrog-quiz-id: ${quiz.id} -->`)
+  })
+
+  it('contains the regenerating mode marker', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain('<!-- balrog-mode: checkbox-regenerating -->')
+  })
+
+  it('shows questions', () => {
+    const body = renderRegeneratingComment(quiz)
+    expect(body).toContain('Why was the connection pool size increased')
+  })
+
+  it('contains French banner when language is fr', () => {
+    const body = renderRegeneratingComment(quiz, 'fr')
+    expect(body).toContain('Nouveau quiz en cours de génération')
+  })
+})
+
+describe('renderPreviousQuizSummary', () => {
+  const quiz = buildQuiz(SAMPLE_QUESTIONS, 1, 'sha', 80, 3)
+
+  it('returns empty string equivalent when no attempts', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    expect(body).toContain('<details>')
+    expect(body).not.toContain('Attempts:')
+  })
+
+  it('contains attempt history when attempts exist', () => {
+    const attempt: AttemptRecord = { n: 1, answers: { '1': ['A'], '2': ['A'], '3': ['A'] }, score: 33 }
+    const quizWithAttempts = { ...quiz, attemptsUsed: 1, attempts: [attempt] }
+    const body = renderPreviousQuizSummary(quizWithAttempts)
+    expect(body).toContain('Attempts:')
+    expect(body).toContain('Attempt 1')
+    expect(body).toContain('33%')
+  })
+
+  it('shows correct answers with checkmarks', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    // Q1 correct is B — should show ✅ for B
+    expect(body).toContain('✅ **B)**')
+    // A should be ⬜
+    expect(body).toContain('⬜ **A)**')
+  })
+
+  it('shows explanations', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    expect(body).toContain(SAMPLE_QUESTIONS[0].explanation)
+  })
+
+  it('wraps in <details> block', () => {
+    const body = renderPreviousQuizSummary(quiz)
+    expect(body).toContain('<details>')
+    expect(body).toContain('</details>')
+    expect(body).toContain('📜 Previous quiz')
+  })
+
+  it('French summary title when language is fr', () => {
+    const body = renderPreviousQuizSummary(quiz, 'fr')
+    expect(body).toContain('📜 Quiz précédent')
   })
 })
