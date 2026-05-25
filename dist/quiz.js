@@ -261,11 +261,20 @@ function renderResultComment(result, language = 'en') {
     lines.push('');
     lines.push('---');
     lines.push('');
+    const optionLetters = ['A', 'B', 'C'];
     for (const r of perQuestion) {
         const q = quiz.questions.find((q) => q.id === r.questionId);
         const submittedKbd = r.submitted.map((l) => `<kbd>${l}</kbd>`).join(' ');
         if (r.isCorrect) {
             lines.push(`✅ **${r.questionId}.** ${q.text}`);
+            const correctOptions = r.correct
+                .map((letter) => {
+                const idx = optionLetters.indexOf(letter);
+                return `**${letter})** ${cleanOption(q.options[idx])}`;
+            })
+                .join(' · ');
+            const correctLabel = isFr ? '↳ Bonne réponse :' : '↳ Correct answer:';
+            lines.push(`> ${correctLabel} ${correctOptions}`);
         }
         else {
             lines.push(`❌ **${r.questionId}.** ${q.text}`);
